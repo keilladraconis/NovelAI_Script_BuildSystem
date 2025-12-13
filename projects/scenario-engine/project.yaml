@@ -1,12 +1,12 @@
 compatibilityVersion: naiscript-1.0
 id: e6c35faa-e4f2-4c3b-af4a-d56e4c992d87
-name: Scenario Generator
+name: Scenario Engine
 version: 0.1.0
 createdAt: 1765374901
 author: Keilla
-description: A helper for generating scenarios with GLM
+description: A helper for building scenarios with GLM
 memoryLimit: 8
-updatedAt: 1765494885
+updatedAt: 1765576772
 config:
   - name: system_prompt
     prettyName: System Prompt
@@ -19,9 +19,9 @@ config:
       You must use plain text output formatting, NEVER bold, italics or
       headings.
 
-      Your role is now Scenario Generator. You produce lorebook entries and
-      other supporting documents for a scenario supporting an interactive
-      storytelling experience.
+      Your role is now Scenario Engine. You produce lorebook entries and other
+      supporting documents for a scenario supporting an interactive storytelling
+      experience.
 
 
       ## Core Philosophy

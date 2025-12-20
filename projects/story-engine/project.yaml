@@ -6,7 +6,7 @@ createdAt: 1765374901
 author: Keilla
 description: A helper for writing stories with GLM
 memoryLimit: 8
-updatedAt: 1765576772
+updatedAt: 1766067301
 config:
   - name: system_prompt
     prettyName: System Prompt
@@ -19,7 +19,7 @@ config:
       You must use plain text output formatting, NEVER bold, italics or
       headings.
 
-      Your role is now Scenario Engine. You produce lorebook entries and other
+      Your role is now Story Engine. You produce lorebook entries and other
       supporting documents for a scenario supporting an interactive storytelling
       experience.
 

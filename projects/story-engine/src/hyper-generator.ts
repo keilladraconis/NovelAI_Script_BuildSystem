@@ -1,3 +1,9 @@
+/** HYPER GENERATOR
+ * License: MIT; Credit to OccultSage for the original form and inspiration
+ * Authors: Keilla
+ * Version: 0.1.0
+ */
+
 // ===== CONSTANTS =====
 
 const DEFAULT_GENERATE_OPTIONS = {
@@ -10,8 +16,6 @@ const DEFAULT_GENERATE_OPTIONS = {
 };
 
 const API_GENERATE_LIMIT = 1024;
-
-const GENERATION_IN_PROGRESS = "A generation is already in progress";
 
 // ===== TYPES =====
 
@@ -234,17 +238,16 @@ export async function hyperGenerate(
     model: ensuredParams.model,
   });
 
-  const contentedMessages = messages.filter(
-    (m) => m.content != undefined,
+  const contextMessages = messages.filter(
+    (m) => m.content != undefined && m.role != "system",
   ) as RolloverHelperContentObject[];
 
-  rolloverHelper.add(contentedMessages);
+  await rolloverHelper.add(contextMessages);
 
   let remainingTokens = ensuredParams.maxTokens;
   let remainingContinuations = ensuredParams.maxContinuations;
   let accumulatedResponses: GenerationResponse[] = [];
   let accumulatedChoices: GenerationChoice[] = [];
-  let continuationMessage: Message | undefined;
 
   const paragraphStreamer =
     callback === undefined
@@ -265,13 +268,30 @@ export async function hyperGenerate(
     hyperLog(
       `hyperGenerate... ${remainingTokens} Tokens, ${remainingContinuations} Continuations.`,
     );
-    const context = rolloverHelper.read() as unknown as Message[];
+    const context: Message[] = [
+      ...(systemMessage !== undefined ? [systemMessage] : []),
+      ...(rolloverHelper.read() as unknown as Message[]),
+      ...(remainingContinuations < ensuredParams.maxContinuations
+        ? [
+            {
+              role: "user",
+              content: ensuredParams.continuationPrompt,
+            } as Message,
+          ]
+        : []),
+    ];
+
+    const sample = context.reduce(
+      (a, b): string => (b.content ? a + b.content : a),
+      "",
+    );
+    hyperLog(
+      "Context sample:",
+      `${sample.slice(0, 40)} ... ${sample.slice(-300)}`,
+    );
+
     const response = await generateWithRetry(
-      [
-        ...(systemMessage !== undefined ? [systemMessage] : []),
-        ...context,
-        ...(continuationMessage !== undefined ? [continuationMessage] : []),
-      ],
+      context,
       {
         ...ensuredParams,
         maxTokens: remainingTokens,
@@ -280,8 +300,6 @@ export async function hyperGenerate(
       behaviour,
       signal,
     );
-
-    accumulatedResponses.push(response);
 
     const trimmedResponseText = (response.choices[0].text =
       response.choices[0].text.replace(/\n.*$/, ""));
@@ -305,10 +323,6 @@ export async function hyperGenerate(
 
     rolloverHelper.add({ role: "assistant", content: trimmedResponseText });
     accumulatedResponses.push(response);
-    continuationMessage = {
-      role: "user",
-      content: ensuredParams.continuationPrompt,
-    };
   }
   hyperLog(`hyperGenerate finished.`);
 
@@ -355,51 +369,51 @@ export async function hyperGenerateText(
  * @param signal Cancellation signal for stopping generation.
  * @returns A Promise of an api.v1.generateResponse
  */
-function generateWithRetry(
+async function generateWithRetry(
   messages: Message[],
   params: HyperGenerationParams,
   callback: (choices: GenerationChoice[], final: boolean) => void = () => {},
   behaviour?: "background" | "blocking",
   signal?: CancellationSignal,
 ): Promise<GenerationResponse> {
-  return ensureOutputBudget(
+  const max_tokens = await ensureOutputBudget(
     params.maxTokens
       ? Math.min(params.maxTokens, API_GENERATE_LIMIT)
       : API_GENERATE_LIMIT,
     params.onBudgetWait,
     params.onBudgetResume,
-  ).then((max_tokens: number) => {
+  );
+
+  try {
     hyperLog(`Generating ${max_tokens} tokens...`);
-    return api.v1
-      .generate(
-        [...messages],
-        {
-          ...sliceGenerateParams(params),
-          max_tokens,
-        },
-        callback,
-        behaviour,
-        signal,
-      )
-      .catch(async (e: any) => {
-        if (isTransientError(e) || /in progress/.test(e.message)) {
-          if (params.maxRetries && params.maxRetries > 0) {
-            await api.v1.timers.sleep(2000 ** (5 - params.maxRetries));
-            return generateWithRetry(
-              messages,
-              { ...params, maxRetries: params.maxRetries - 1 },
-              callback,
-              behaviour,
-              signal,
-            );
-          } else {
-            throw new TransientError(
-              "[generateWithRetry] Transient error encountered and retries exhausted.",
-            );
-          }
-        } else {
-          throw e;
-        }
-      });
-  });
+    return api.v1.generate(
+      [...messages],
+      {
+        ...sliceGenerateParams(params),
+        max_tokens,
+      },
+      callback,
+      behaviour,
+      signal,
+    );
+  } catch (e: any) {
+    if (isTransientError(e) || /in progress/.test(e.message)) {
+      if (params.maxRetries && params.maxRetries > 0) {
+        await api.v1.timers.sleep(2000 ** (5 - params.maxRetries));
+        return generateWithRetry(
+          messages,
+          { ...params, maxRetries: params.maxRetries - 1 },
+          callback,
+          behaviour,
+          signal,
+        );
+      } else {
+        throw new TransientError(
+          "[generateWithRetry] Transient error encountered and retries exhausted.",
+        );
+      }
+    } else {
+      throw e;
+    }
+  }
 }

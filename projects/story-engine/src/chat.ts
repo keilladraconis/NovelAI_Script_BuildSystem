@@ -2,7 +2,7 @@ import {
   OnBudgetWaitCallback,
   createContinueModalCallback,
   hyperGenerateText,
-} from "./generation";
+} from "./hyper-generator";
 
 const { get, set } = api.v1.storyStorage;
 const { get: getConfig } = api.v1.config;
@@ -71,12 +71,17 @@ export class Chat {
     this.isGenerating = true;
     const signal = await api.v1.createCancellationSignal();
     // Add an empty assistant message
-    this.addMessage("assistant", "[...]");
+    this.addMessage("assistant", "");
     hyperGenerateText(
       messages,
-      { onBudgetWait: createContinueModalCallback(signal) },
+      {
+        minTokens: 50,
+        maxTokens: 350,
+        onBudgetWait: createContinueModalCallback(signal),
+      },
       this.streamMessage,
       "blocking",
+      signal,
     )
       .catch((error) => api.v1.log("Generation failed:", error))
       .finally(() => {

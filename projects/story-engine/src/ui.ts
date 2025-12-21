@@ -26,8 +26,6 @@ const textMarkdown = (text: string) =>
       width: "100%",
     },
   });
-const multilineTextInput = (storageKey: string, placeholder: string) =>
-  part.multilineTextInput({ storageKey, placeholder });
 
 const button = (
   text: string = "",
@@ -68,6 +66,7 @@ type ChatUIParams = {
 
 // ChatUI is a set of pure functions.
 export class ChatUI {
+  public onBrainstorm: () => void = () => {};
   public onSendMessage: (text: string) => void = (_) => {};
   public onClear: () => void = () => {};
   public onInteract: () => void = () => {};
@@ -81,6 +80,8 @@ export class ChatUI {
     get(INPUT_ID).then((text) =>
       set(INPUT_ID, "").then(() => this.onSendMessage(text)),
     );
+
+  handleBrainstorm = async () => this.onBrainstorm();
 
   updatePanel = (
     messages: Message[],
@@ -107,11 +108,13 @@ export class ChatUI {
                   ),
                 ),
               }),
+              row(button("", this.handleBrainstorm, "feather")),
               row(
-                multilineTextInput(
-                  `story:${INPUT_ID}`,
-                  "Type your story idea or question here...",
-                ),
+                part.multilineTextInput({
+                  storageKey: `story:${INPUT_ID}`,
+                  placeholder: "Type your story idea or question here...",
+                  onSubmit: this.handleSendButton,
+                }),
                 row(
                   button("", this.handleSendButton, "send", {
                     disabled: isGenerating,

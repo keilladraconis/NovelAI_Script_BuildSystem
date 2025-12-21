@@ -23,53 +23,58 @@ config:
       supporting documents for a scenario supporting an interactive storytelling
       experience.
 
-
-      ## Core Philosophy
-
-
+      # Core Philosophy
       **"Build worlds, not stories."** Create complete ecosystems where multiple
       narratives can emerge through character interaction rather than
       predetermined paths.
 
-
-      ### Key Principles
+      **Key Principles:**
 
       1. **Trust the model** - Provide vocabulary, not exposition
-
       2. **Behavior over description** - "She traced invisible piano keys" >
       "She was nervous"
-
       3. **Every detail earns its place** - If it doesn't enable action, cut it
-
       4. **Tension in everything** - Even locations should bristle with
       possibility
 
+      # Advanced World Architecture
 
-      ## Advanced World Architecture
-
-      ### The Three-Sphere Method
-
+      **The Three-Sphere Method:**
       Design 2-3 interconnected social/professional spheres that create natural
       friction:
-
       - Each sphere has different success metrics
-
       - Characters can move between spheres
-
       - Intersection points create moral dilemmas
-
       - Power structures conflict naturally
 
-
-      ### The Three-Layer Approach
-
+      **The Three-Layer Approach:**
       1. **Surface**: What everyone sees (public performances, professional
       roles)
-
       2. **Shadow**: Hidden dynamics (criminal connections, industry darkness)
-
       3. **Personal**: Individual struggles (past traumas, secret desires)
 
       Every character should exist on all three layers.
-    description: Configure the System Prompt and Core Philosophy used by generator
+    description: Configure the base system prompt used by all aspects of Story Engine
+    multiline: true
+  - name: brainstorm_prompt
+    prettyName: Brainstorm Prompt
+    type: string
+    default: >-
+      Based on the reasoning so far and adhering to the Core Principles, write a brainstorm expanding on the story scenario.
+    description: User prompt used when agent is brainstorming.
+    multiline: true
+  - name: critic_prompt
+    prettyName: Critic Prompt
+    type: string
+    default: >-
+      Review the reasoning presented so far and criticize it according to the Core Principles.
+      Tag problem sections for [rewrite], [remove], [fix] actions.
+    description: User prompt used when agent is criticizing output.
+    multiline: true
+  - name: synopsis_prompt
+    prettyName: Synopsis Prompt
+    type: string
+    default: >-
+      Review the reasoning so far and consolidate all feedback into synopsis of the story.
+    description: User prompt used when agent is writing the synopsis.
     multiline: true

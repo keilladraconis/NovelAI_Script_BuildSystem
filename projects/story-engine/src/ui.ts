@@ -3,12 +3,7 @@ const { part, update, extension } = api.v1.ui;
 const { get, set } = api.v1.storyStorage;
 
 const INPUT_ID = "kse-engine-chat-input";
-
-const SIDEBAR = extension.sidebarPanel({
-  id: "ksg-sidebar",
-  name: "Scenario Engine",
-  content: [],
-}) as UIExtensionSidebarPanel & { id: string };
+const SIDEBAR_ID = "kdg-sidebar";
 
 // Basic UI helper wrappers
 const column = (...content: UIPart[]) =>
@@ -71,17 +66,20 @@ export class ChatUI {
   public onClear: () => void = () => {};
   public onInteract: () => void = () => {};
 
-  register = async () =>
-    await api.v1.ui
-      .register([SIDEBAR])
-      .catch((err) => log(`Error registering sidebar: ${JSON.stringify(err)}`));
+  register = () => api.v1.ui.register([this.sidebar]);
 
-  handleSendButton = async () =>
+  sidebar = extension.sidebarPanel({
+    id: SIDEBAR_ID,
+    name: "Scenario Engine",
+    content: [],
+  }) as UIExtensionSidebarPanel & { id: string };
+
+  handleSendButton = () =>
     get(INPUT_ID).then((text) =>
       set(INPUT_ID, "").then(() => this.onSendMessage(text)),
     );
 
-  handleBrainstorm = async () => this.onBrainstorm();
+  handleBrainstorm = () => this.onBrainstorm();
 
   updatePanel = (
     messages: Message[],
@@ -89,42 +87,40 @@ export class ChatUI {
   ) =>
     update([
       {
-        ...SIDEBAR,
-        ...{
-          content: [
-            column(
-              textMarkdown("# Story Engine Chat"),
-              row({
-                ...{ style: { "scroll-snap-align": "bottom" } },
-                ...column(
-                  ...messages
-                    .filter((m) => m.role != "system")
-                    .map(createMessageBubble),
-                  generationControl(
-                    isGenerating,
-                    waiting,
-                    interactionNeeded,
-                    this.onInteract,
-                  ),
-                ),
-              }),
-              row(button("", this.handleBrainstorm, "feather")),
-              row(
-                part.multilineTextInput({
-                  storageKey: `story:${INPUT_ID}`,
-                  placeholder: "Type your story idea or question here...",
-                  onSubmit: this.handleSendButton,
-                }),
-                row(
-                  button("", this.handleSendButton, "send", {
-                    disabled: isGenerating,
-                  }),
-                  button("", this.onClear, "trash"),
+        ...this.sidebar,
+        content: [
+          column(
+            textMarkdown("# Story Engine Chat"),
+            row({
+              ...{ style: { "scroll-snap-align": "bottom" } },
+              ...column(
+                ...messages
+                  .filter((m) => m.role != "system")
+                  .map(createMessageBubble),
+                generationControl(
+                  isGenerating,
+                  waiting,
+                  interactionNeeded,
+                  this.onInteract,
                 ),
               ),
+            }),
+            row(button("", this.handleBrainstorm, "feather")),
+            row(
+              part.multilineTextInput({
+                storageKey: `story:${INPUT_ID}`,
+                placeholder: "Type your story idea or question here...",
+                onSubmit: this.handleSendButton,
+              }),
+              row(
+                button("", this.handleSendButton, "send", {
+                  disabled: isGenerating,
+                }),
+                button("", this.onClear, "trash"),
+              ),
             ),
-          ],
-        },
+          ),
+        ],
       },
     ]);
 }

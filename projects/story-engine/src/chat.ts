@@ -27,23 +27,19 @@ export class Chat {
       get(this.CHAT_HISTORY_KEY)
         .then((history) => (this.messages = JSON.parse(history)))
         .catch(() => (this.messages = [])),
-      getConfig("system_prompt")
-        .then((systemPrompt: string) => (this.systemPrompt = systemPrompt))
-        .then(this.save),
-      getConfig("brainstorm_prompt")
-        .then(
-          (brainstormPrompt: string) =>
-            (this.brainstormPrompt = brainstormPrompt),
-        )
-        .then(this.save),
-      getConfig("critic_prompt")
-        .then((criticPrompt: string) => (this.criticPrompt = criticPrompt))
-        .then(this.save),
-      getConfig("synopsis_prompt")
-        .then(
-          (synopsisPrompt: string) => (this.synopsisPrompt = synopsisPrompt),
-        )
-        .then(this.save),
+      getConfig("system_prompt").then(
+        (systemPrompt: string) => (this.systemPrompt = systemPrompt),
+      ),
+      getConfig("brainstorm_prompt").then(
+        (brainstormPrompt: string) =>
+          (this.brainstormPrompt = brainstormPrompt),
+      ),
+      getConfig("critic_prompt").then(
+        (criticPrompt: string) => (this.criticPrompt = criticPrompt),
+      ),
+      getConfig("synopsis_prompt").then(
+        (synopsisPrompt: string) => (this.synopsisPrompt = synopsisPrompt),
+      ),
     ]);
   }
 

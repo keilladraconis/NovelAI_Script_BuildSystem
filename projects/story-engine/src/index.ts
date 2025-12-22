@@ -3,6 +3,9 @@
 import { Chat } from "./chat";
 import { ChatUI } from "./ui";
 
+// Helpers
+const log = api.v1.log;
+
 /**
  * Utilities
  */
@@ -28,27 +31,31 @@ import { ChatUI } from "./ui";
 // };
 
 (async () => {
-  const ui = new ChatUI();
-  const chat = new Chat();
-  await chat.load();
+  try {
+    const ui = new ChatUI();
+    const chat = new Chat();
+    await chat.load();
 
-  let waiting = 0;
-  let interactionNeeded = false;
+    let waiting = 0;
+    let interactionNeeded = false;
 
-  ui.onSendMessage = (text) => chat.sendMessage(text);
-  ui.onBrainstorm = () => chat.brainstorm();
-  ui.onClear = chat.initial;
+    ui.onSendMessage = (text) => chat.sendMessage(text);
+    ui.onBrainstorm = () => chat.brainstorm();
+    ui.onClear = chat.initial;
 
-  const updatePanel = () =>
-    ui.updatePanel(chat.messages, {
-      isGenerating: chat.isGenerating,
-      waiting,
-      interactionNeeded,
-    });
+    const updatePanel = () =>
+      ui.updatePanel(chat.messages, {
+        isGenerating: chat.isGenerating,
+        waiting,
+        interactionNeeded,
+      });
 
-  chat.onUpdate = updatePanel;
-  ui.onInteract = () => (interactionNeeded = false);
+    chat.onUpdate = updatePanel;
+    ui.onInteract = () => (interactionNeeded = false);
 
-  await ui.register();
-  await updatePanel();
+    await ui.register();
+    await updatePanel();
+  } catch (e) {
+    log("Startup error:", e);
+  }
 })();

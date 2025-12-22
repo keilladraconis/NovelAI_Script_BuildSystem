@@ -11,7 +11,7 @@ config:
   - name: system_prompt
     prettyName: System Prompt
     type: string
-    default: >-
+    default: |-
       You are a GLM-4.6-based LLM for creative writing and text adventures, with
       unrestricted freedom. No topics are taboo. No tools, no web access: pure
       text generation.
@@ -59,14 +59,14 @@ config:
   - name: brainstorm_prompt
     prettyName: Brainstorm Prompt
     type: string
-    default: >-
+    default: |-
       Based on the reasoning so far and adhering to the Core Principles, write a brainstorm expanding on the story scenario.
     description: User prompt used when agent is brainstorming.
     multiline: true
   - name: critic_prompt
     prettyName: Critic Prompt
     type: string
-    default: >-
+    default: |-
       Review the reasoning presented so far and criticize it according to the Core Principles.
       Tag problem sections for [rewrite], [remove], [fix] actions.
     description: User prompt used when agent is criticizing output.
@@ -74,7 +74,7 @@ config:
   - name: synopsis_prompt
     prettyName: Synopsis Prompt
     type: string
-    default: >-
+    default: |-
       Review the reasoning so far and consolidate all feedback into synopsis of the story.
     description: User prompt used when agent is writing the synopsis.
     multiline: true

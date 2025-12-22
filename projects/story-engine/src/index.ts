@@ -49,6 +49,6 @@ import { ChatUI } from "./ui";
   chat.onUpdate = updatePanel;
   ui.onInteract = () => (interactionNeeded = false);
 
-  ui.register();
-  updatePanel();
+  await ui.register();
+  await updatePanel();
 })();

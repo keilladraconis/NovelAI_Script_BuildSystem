@@ -1,4 +1,5 @@
-const { log } = api.v1;
+import { Chat } from "./chat";
+
 const { part, update, extension } = api.v1.ui;
 const { get, set } = api.v1.storyStorage;
 
@@ -34,58 +35,37 @@ const createMessageBubble = (message: Message): UIPart =>
     ? box(row(textMarkdown(message.content || "")))
     : row(textMarkdown(message.content || ""));
 
-const generationControl = (
-  isGenerating: boolean,
-  waiting: number,
-  interactionNeeded: boolean,
-  onInteract: () => void,
-): UIPartBox =>
-  part.box({
-    style: { display: isGenerating ? "inherit" : "none" },
-    content: [
-      interactionNeeded && waiting > 0
-        ? button("", onInteract, "refresh-cw")
-        : button("", onInteract, "time"),
-      ...(interactionNeeded
-        ? [text(`Waiting ${waiting} seconds to continue...`)]
-        : []),
-      button("", () => {}, "x"),
-    ],
-  });
-
-type ChatUIParams = {
-  isGenerating: boolean;
-  waiting: number;
-  interactionNeeded: boolean;
-};
-
 // ChatUI is a set of pure functions.
 export class ChatUI {
-  public onBrainstorm: () => void = () => {};
-  public onSendMessage: (text: string) => void = (_) => {};
-  public onClear: () => void = () => {};
-  public onInteract: () => void = () => {};
+  // Hooks
+  onSendMessage = (_text: string) => {};
+  onBrainstorm = () => {};
+  onCritic = () => {};
+  onClear = () => {};
 
-  register = () => api.v1.ui.register([this.sidebar]);
+  // Handlers
+  handleSendMessage = () =>
+    get(INPUT_ID).then((text) =>
+      set(INPUT_ID, "").then(() => this.onSendMessage(text)),
+    );
+  handleClear = () => this.onClear();
+  handleBrainstorm = () => this.onBrainstorm();
+  handleCritic = () => this.onCritic();
 
+  // Helpers
   sidebar = extension.sidebarPanel({
     id: SIDEBAR_ID,
     name: "Scenario Engine",
     content: [],
   }) as UIExtensionSidebarPanel & { id: string };
 
-  handleSendButton = () =>
-    get(INPUT_ID).then((text) =>
-      set(INPUT_ID, "").then(() => this.onSendMessage(text)),
-    );
+  // Functions
+  register() {
+    return api.v1.ui.register([this.sidebar]);
+  }
 
-  handleBrainstorm = () => this.onBrainstorm();
-
-  updatePanel = (
-    messages: Message[],
-    { isGenerating, waiting, interactionNeeded }: ChatUIParams,
-  ) =>
-    update([
+  updatePanel({ messages, isGenerating }: Chat) {
+    return update([
       {
         ...this.sidebar,
         content: [
@@ -97,30 +77,28 @@ export class ChatUI {
                 ...messages
                   .filter((m) => m.role != "system")
                   .map(createMessageBubble),
-                generationControl(
-                  isGenerating,
-                  waiting,
-                  interactionNeeded,
-                  this.onInteract,
-                ),
               ),
             }),
-            row(button("", this.handleBrainstorm, "feather")),
+            row(
+              button("Brainstorm", this.handleBrainstorm, "feather"),
+              button("Critic", this.handleCritic, "flag"),
+            ),
             row(
               part.multilineTextInput({
                 storageKey: `story:${INPUT_ID}`,
                 placeholder: "Type your story idea or question here...",
-                onSubmit: this.handleSendButton,
+                onSubmit: this.handleSendMessage,
               }),
               row(
-                button("", this.handleSendButton, "send", {
+                button("", this.handleSendMessage, "send", {
                   disabled: isGenerating,
                 }),
-                button("", this.onClear, "trash"),
+                button("", this.handleClear, "trash"),
               ),
             ),
           ),
         ],
       },
     ]);
+  }
 }

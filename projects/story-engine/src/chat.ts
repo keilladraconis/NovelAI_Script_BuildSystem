@@ -8,6 +8,9 @@ const { get, set } = api.v1.storyStorage;
 const { get: getConfig } = api.v1.config;
 
 export class Chat {
+  // Constants
+  CHAT_HISTORY_KEY = "kse-chat-history";
+
   // Properties
   messages: Message[] = [];
   isGenerating = false;
@@ -20,7 +23,37 @@ export class Chat {
   onUpdate = () => {};
   onBudgetWait: OnBudgetWaitCallback = () => true;
 
-  CHAT_HISTORY_KEY = "kse-chat-history";
+  // Handlers
+  handleClear = () => {
+    this.messages = [];
+    this.isGenerating = false;
+    this.save();
+  };
+
+  handleStreamMessage = (text: string, final: boolean) => {
+    const messageToAppend = this.messages.at(-1);
+    if (messageToAppend !== undefined)
+      messageToAppend.content = messageToAppend.content + text;
+    if (final) {
+      this.save();
+    } else {
+      this.onUpdate();
+    }
+  };
+
+  handleBrainstorm = () => {
+    this.addMessage("assistant", "----\n**Brainstorm:**\n");
+    this.generateResponse(this.brainstormPrompt, 450);
+  };
+  handleCritic = () => {
+    this.addMessage("assistant", "----\n**Critic:**\n");
+    this.generateResponse(this.criticPrompt, 450);
+  };
+
+  handleSendMessage = (content: string) =>
+    this.addMessage("user", content + "\n");
+
+  // Functions
 
   async load() {
     return Promise.all([
@@ -52,16 +85,8 @@ export class Chat {
     );
   }
 
-  initial() {
-    this.messages = [];
-    this.isGenerating = false;
-  }
-
-  generateId() {
-    return Math.random().toString(36).substring(2, 9);
-  }
-
   addMessage(role: Message["role"], content: string) {
+    if (content.length <= 0) return;
     this.messages.push({
       role,
       content,
@@ -69,37 +94,24 @@ export class Chat {
     this.save();
   }
 
-  streamMessage(text: string, final: boolean) {
-    const lastMessage = this.messages[this.messages.length - 1];
-    lastMessage.content = lastMessage.content + text;
-    if (final) {
-      set(this.CHAT_HISTORY_KEY, JSON.stringify(this.messages));
-    }
-    this.onUpdate();
-  }
-
-  async brainstorm() {
-    this.generateResponse(this.brainstormPrompt, 1000);
-  }
-
   private async generateResponse(userMessage: string, length: number) {
     // Build conversation history for AI
     const context: Message[] = [
-      ...this.messages,
+      { role: "system", content: this.systemPrompt + "\n" },
       {
         role: "user",
-        content: `${userMessage} /nothink`,
+        content: `${userMessage} /nothink\n`,
       },
+      ...this.messages,
       {
         role: "assistant",
-        content: "<think></think>Understood.\n[Continuing:]",
+        content: "<think></think>Understood.\n[Continuing:]\n",
       },
     ];
 
     this.isGenerating = true;
     const signal = await api.v1.createCancellationSignal();
     // Add an empty assistant message
-    this.addMessage("assistant", "");
     hyperGenerateText(
       context,
       {
@@ -107,7 +119,7 @@ export class Chat {
         maxTokens: length,
         onBudgetWait: createContinueModalCallback(signal),
       },
-      this.streamMessage,
+      this.handleStreamMessage,
       "blocking",
       signal,
     )
@@ -116,9 +128,5 @@ export class Chat {
         this.isGenerating = false;
         this.onUpdate();
       });
-  }
-
-  sendMessage(content: string) {
-    if (content.trim().length > 0) this.addMessage("user", content);
   }
 }

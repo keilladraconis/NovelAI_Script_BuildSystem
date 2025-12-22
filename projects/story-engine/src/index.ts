@@ -36,25 +36,17 @@ const log = api.v1.log;
     const chat = new Chat();
     await chat.load();
 
-    let waiting = 0;
-    let interactionNeeded = false;
+    ui.onSendMessage = chat.handleSendMessage;
+    ui.onBrainstorm = chat.handleBrainstorm;
+    ui.onCritic = chat.handleCritic;
+    ui.onClear = chat.handleClear;
 
-    ui.onSendMessage = (text) => chat.sendMessage(text);
-    ui.onBrainstorm = () => chat.brainstorm();
-    ui.onClear = chat.initial;
-
-    const updatePanel = () =>
-      ui.updatePanel(chat.messages, {
-        isGenerating: chat.isGenerating,
-        waiting,
-        interactionNeeded,
-      });
+    const updatePanel = () => ui.updatePanel(chat);
 
     chat.onUpdate = updatePanel;
-    ui.onInteract = () => (interactionNeeded = false);
 
-    await ui.register();
-    await updatePanel();
+    ui.register();
+    updatePanel();
   } catch (e) {
     log("Startup error:", e);
   }

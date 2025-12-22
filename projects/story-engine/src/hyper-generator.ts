@@ -1,7 +1,7 @@
 /** HYPER GENERATOR
  * License: MIT; Credit to OccultSage for the original form and inspiration
  * Authors: Keilla
- * Version: 0.1.0
+ * Version: 0.1.1
  */
 
 // ===== CONSTANTS =====
@@ -287,7 +287,7 @@ export async function hyperGenerate(
     );
     hyperLog(
       "Context sample:",
-      `${sample.slice(0, 40)} ... ${sample.slice(-300)}`,
+      `${sample.slice(0, 40)} ... ${sample.slice(-350)}`,
     );
 
     const response = await generateWithRetry(
@@ -300,9 +300,10 @@ export async function hyperGenerate(
       behaviour,
       signal,
     );
+    accumulatedChoices = []; // Generation finished. Clear anything held in the streaming response buffer.
 
     const trimmedResponseText = (response.choices[0].text =
-      response.choices[0].text.replace(/\n.*$/, ""));
+      response.choices[0].text.replace(/\n.*$/, "") + "\n");
     const trimmedResponseTokens = await api.v1.tokenizer.encode(
       trimmedResponseText,
       ensuredParams.model,
@@ -321,7 +322,10 @@ export async function hyperGenerate(
       break;
     }
 
-    rolloverHelper.add({ role: "assistant", content: trimmedResponseText });
+    await rolloverHelper.add({
+      role: "assistant",
+      content: trimmedResponseText,
+    });
     accumulatedResponses.push(response);
   }
   hyperLog(`hyperGenerate finished.`);

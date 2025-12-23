@@ -1,7 +1,7 @@
 /** HYPER GENERATOR
  * License: MIT; Credit to OccultSage for the original form and inspiration
  * Authors: Keilla
- * Version: 0.1.2
+ * Version: 0.2.0
  */
 
 /** Changes
@@ -9,6 +9,8 @@
  * Fix stopping after min tokens reached
  * First generation always goes through even if requested tokens is extremely short.
  * Drain remaining choices to the streaming callback even if very short.
+ * Delete hyperGenerateText and modify hyperGenerate so it just deals in text.
+ * No more attempting to trim-to-paragraphs. Yolo continuation.
  */
 
 // ===== CONSTANTS =====
@@ -214,15 +216,15 @@ async function showContinueModal(
  * @param callback Optional streaming callback. Accumulates GenerationChoice[0] and emits GenerationChoice[] when a newline is received.
  * @param behaviour "background" or "blocking".
  * @param signal Cancellation signal for stopping generation.
- * @returns A promise of api.v1.generate respones.
+ * @returns A promise of an array of response strings.
  */
 export async function hyperGenerate(
   messages: Message[],
   params: HyperGenerationParams,
-  callback: (choices: GenerationChoice[], final: boolean) => void = () => {},
+  callback: (text: string, final: boolean) => void = () => {},
   behaviour?: "background" | "blocking",
   signal?: CancellationSignal,
-): Promise<GenerationResponse[]> {
+): Promise<string> {
   const generationParams = await api.v1.generationParameters.get();
   const ensuredParams = {
     ...generationParams,
@@ -230,69 +232,61 @@ export async function hyperGenerate(
     ...params,
   };
 
+  const choiceHandler =
+    callback !== undefined
+      ? (choices: GenerationChoice[], final: boolean): void =>
+          callback(choices[0].text, final)
+      : undefined;
+
+  // Find system message if present
   let systemMessage = messages.find((m) => m.role == "system");
+  const { model, maxTokens, minTokens, maxContinuations, continuationPrompt } =
+    ensuredParams;
   const systemMessageTokens = systemMessage?.content
-    ? (
-        await api.v1.tokenizer.encode(
-          systemMessage.content,
-          ensuredParams.model,
-        )
-      ).length
+    ? (await api.v1.tokenizer.encode(systemMessage.content, model)).length
     : 0;
-  const modelMaxTokens = await api.v1.maxTokens(ensuredParams.model);
+
+  // Setup rollover helper for context management
+  const modelMaxTokens = await api.v1.maxTokens(model);
   const rolloverHelper = api.v1.createRolloverHelper({
     maxTokens: modelMaxTokens - systemMessageTokens,
     rolloverTokens: 0,
-    model: ensuredParams.model,
+    model: model,
   });
 
+  // Add non-system messages to rollover
   const contextMessages = messages.filter(
     (m) => m.content != undefined && m.role != "system",
   ) as RolloverHelperContentObject[];
-
   await rolloverHelper.add(contextMessages);
 
-  let remainingTokens = ensuredParams.maxTokens;
-  let remainingContinuations = ensuredParams.maxContinuations;
-  let accumulatedResponses: GenerationResponse[] = [];
-  let accumulatedChoices: GenerationChoice[] = [];
-
-  const paragraphStreamer =
-    callback === undefined
-      ? undefined
-      : (choices: GenerationChoice[], final: boolean) => {
-          accumulatedChoices.push(choices[0]);
-          if (choices[0].text.endsWith("\n")) {
-            callback(accumulatedChoices, final);
-            accumulatedChoices = [];
-          }
-        };
+  let remainingTokens = maxTokens;
+  let remainingContinuations = maxContinuations;
+  let accumulatedResponses: string[] = [];
 
   hyperLog(
-    `hyperGenerate beginning loop for ${remainingTokens} Tokens, ${remainingContinuations} Continuations.`,
+    `beginning loop for ${remainingTokens} Tokens, ${remainingContinuations} Continuations.`,
   );
 
   while (
-    remainingContinuations == ensuredParams.maxContinuations ||
+    remainingContinuations == maxContinuations ||
     (remainingTokens > MIN_REMAINING_TOKENS && remainingContinuations > 0)
   ) {
     hyperLog(
-      `hyperGenerate... ${remainingTokens} Tokens, ${remainingContinuations} Continuations.`,
+      `... ${remainingTokens} Tokens, ${remainingContinuations} Continuations.`,
     );
-    accumulatedChoices = []; // Clear response buffer before continuing generation.
 
-    const context: Message[] = [
-      ...(systemMessage !== undefined ? [systemMessage] : []),
-      ...(rolloverHelper.read() as unknown as Message[]),
-      ...(remainingContinuations < ensuredParams.maxContinuations
-        ? [
-            {
-              role: "user",
-              content: ensuredParams.continuationPrompt,
-            } as Message,
-          ]
-        : []),
-    ];
+    const context: Message[] = [];
+
+    if (systemMessage) context.push(systemMessage);
+    context.push(...(rolloverHelper.read() as unknown as Message[]));
+
+    // If we are in a continuation, splice the continuation prompt before the last message.
+    if (remainingContinuations < maxContinuations)
+      context.splice(context.length - 2, 0, {
+        role: "user" as const,
+        content: continuationPrompt,
+      });
 
     const sample = context.reduce(
       (a, b): string => (b.content ? a + b.content : a),
@@ -303,78 +297,47 @@ export async function hyperGenerate(
       `${sample.slice(0, 40)} ... ${sample.slice(-350)}`,
     );
 
-    const response = await generateWithRetry(
+    const response = await hyperGenerateWithRetry(
       context,
       {
         ...ensuredParams,
         maxTokens: remainingTokens,
       },
-      paragraphStreamer,
+      choiceHandler,
       behaviour,
       signal,
     );
 
-    const trimmedResponseText = (response.choices[0].text =
-      response.choices[0].text.replace(/\n.*$/, "") + "\n");
-    const trimmedResponseTokens = await api.v1.tokenizer.encode(
-      trimmedResponseText,
-      ensuredParams.model,
-    );
+    const { text, finish_reason } = response.choices[0];
+    const trimmedText = text.trim();
+    const trimmedResponseTokens = await api.v1.tokenizer.encode(text, model);
 
-    remainingTokens = remainingTokens - trimmedResponseTokens.length;
-    remainingContinuations = remainingContinuations - 1;
+    remainingTokens -= trimmedResponseTokens.length;
+    remainingContinuations--;
+    const tokensGenerated = maxTokens - remainingTokens;
 
-    const { finish_reason } = response.choices[0];
-
-    if (
-      finish_reason === "stop" &&
-      ensuredParams.maxTokens - remainingTokens > ensuredParams.minTokens
-    ) {
-      hyperLog("Stop generation after minTokens reached with stop.");
-      break;
+    // Check if we should stop
+    if (finish_reason === "stop") {
+      // Only stop early if we've generated at least minTokens
+      if (tokensGenerated >= minTokens) {
+        hyperLog(`Natural stop after ${tokensGenerated} tokens`);
+        break;
+      } else {
+        hyperLog(
+          `Stop received but only ${tokensGenerated}/${minTokens} tokens - continuing`,
+        );
+      }
     }
 
     await rolloverHelper.add({
       role: "assistant",
-      content: trimmedResponseText,
+      content: trimmedText,
     });
-    accumulatedResponses.push(response);
+    accumulatedResponses.push(trimmedText);
   }
-  // Drain remaining choices to the callback. Will be a partial paragraph.
-  if (callback) callback(accumulatedChoices, true);
   hyperLog(`hyperGenerate finished.`);
 
-  return accumulatedResponses;
-}
-
-/**
- * A wrapper around hyperGenerate that reduces the generation responses to a single string.
- * @param messages Messages expected by api.v1.generate
- * @param params api.v1.generate parameters extended with additional parameters to control hyper generation
- * @param callback Optional streaming callback. Emits paragraphs instead of individual tokens.
- * @param behaviour "background" or "blocking".
- * @param signal Cancellation signal for stopping generation.
- * @returns Promise of generated text.
- */
-export async function hyperGenerateText(
-  messages: Message[],
-  params: HyperGenerationParams,
-  callback: (text: string, final: boolean) => void = () => {},
-  behaviour?: "background" | "blocking",
-  signal?: CancellationSignal,
-): Promise<string> {
-  const textStreamer =
-    callback === undefined
-      ? callback
-      : (choices: GenerationChoice[], final: boolean) =>
-          callback(
-            choices.reduce((a, c) => a + c.text, ""),
-            final,
-          );
-
-  return (
-    await hyperGenerate(messages, params, textStreamer, behaviour, signal)
-  ).reduce((a, b) => [a, b.choices[0].text].join("\n"), "");
+  return accumulatedResponses.join("");
 }
 
 /**
@@ -387,7 +350,7 @@ export async function hyperGenerateText(
  * @param signal Cancellation signal for stopping generation.
  * @returns A Promise of an api.v1.generateResponse
  */
-async function generateWithRetry(
+async function hyperGenerateWithRetry(
   messages: Message[],
   params: HyperGenerationParams,
   callback: (choices: GenerationChoice[], final: boolean) => void = () => {},
@@ -418,7 +381,7 @@ async function generateWithRetry(
     if (isTransientError(e) || /in progress/.test(e.message)) {
       if (params.maxRetries && params.maxRetries > 0) {
         await api.v1.timers.sleep(2000 ** (5 - params.maxRetries));
-        return generateWithRetry(
+        return hyperGenerateWithRetry(
           messages,
           { ...params, maxRetries: params.maxRetries - 1 },
           callback,

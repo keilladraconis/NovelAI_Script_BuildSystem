@@ -1,13 +1,13 @@
 import {
   OnBudgetWaitCallback,
   createContinueModalCallback,
-  hyperGenerateText,
+  hyperGenerate,
 } from "./hyper-generator";
 
 const { get, set } = api.v1.storyStorage;
 const { get: getConfig } = api.v1.config;
 
-type AgentRole = "brainstorm" | "critic" | "anchor";
+type AgentRole = "riff" | "critic" | "anchor";
 
 // Types
 interface Agent {
@@ -19,20 +19,20 @@ interface Agent {
   load(): Promise<string>;
 }
 
-class BrainstormAgent implements Agent {
-  maxTokens = 250;
+class RiffAgent implements Agent {
+  maxTokens = 2048;
   userPrompt = "";
-  assistantHeader = "----\n**Brainstorm:**\n\n";
-  role: AgentRole = "brainstorm";
+  assistantHeader = "----\n**Riff:**\n\n";
+  role: AgentRole = "riff";
 
   async load() {
-    const prompt = await getConfig("brainstorm_prompt");
+    const prompt = await getConfig("riff_prompt");
     return (this.userPrompt = prompt);
   }
 }
 
 class CriticAgent implements Agent {
-  maxTokens = 1000;
+  maxTokens = 2048;
   userPrompt = "";
   assistantHeader = "----\n**Critic & Director:**\n\n";
   role: AgentRole = "critic";
@@ -44,7 +44,7 @@ class CriticAgent implements Agent {
 }
 
 class AnchorAgent implements Agent {
-  maxTokens = 1000;
+  maxTokens = 2048;
   userPrompt = "";
   assistantHeader = "----\n**Anchor:**\n\n";
   role: AgentRole = "anchor";
@@ -56,7 +56,7 @@ class AnchorAgent implements Agent {
 }
 
 const AGENTS = {
-  brainstorm: BrainstormAgent,
+  riff: RiffAgent,
   anchor: AnchorAgent,
   critic: CriticAgent,
 };
@@ -71,7 +71,7 @@ export class Chat {
   isAgentResponding = false;
   minTokens = 25;
   systemPrompt = "";
-  agent: AnchorAgent | BrainstormAgent | CriticAgent = new BrainstormAgent();
+  agent: AnchorAgent | RiffAgent | CriticAgent = new RiffAgent();
 
   // Hooks
   onUpdate = () => {};
@@ -81,18 +81,18 @@ export class Chat {
   handleClear = () => {
     this.messages = [];
     this.isGenerating = false;
-    this.agent = new BrainstormAgent();
+    this.agent = new RiffAgent();
     this.save();
     this.load();
   };
 
   handleStreamMessage = (text: string, final: boolean) => {
     const messageToAppend = this.messages.at(-1)!;
-    // Add trailing whitespace to the end of the message if needed
-    if (!/\s$/.test(messageToAppend.content!))
-      messageToAppend.content = messageToAppend.content + " ";
-    messageToAppend.content = messageToAppend.content + text;
+    messageToAppend.content += text;
     if (final) {
+      // Add trailing whitespace to the end of the message if needed
+      if (!/\s$/.test(messageToAppend.content!))
+        messageToAppend.content = messageToAppend.content + " ";
       this.save();
     } else {
       this.onUpdate();
@@ -159,7 +159,7 @@ export class Chat {
         role: "system",
         content: this.systemPrompt.replaceAll("\n", "\n\n") + "\n\n",
       },
-      ...this.messages,
+      ...this.messages.slice(0, -1),
       {
         role: "user",
         content: `${this.agent.userPrompt.replaceAll("\n", "\n\n")} /nothink\n\n`,
@@ -168,12 +168,13 @@ export class Chat {
         role: "assistant",
         content: "<think></think>Understood.\n\n[Continuing:]\n",
       },
+      this.messages.at(-1)!,
     ];
 
     this.isGenerating = true;
     const signal = await api.v1.createCancellationSignal();
     // Add an empty assistant message
-    hyperGenerateText(
+    hyperGenerate(
       context,
       {
         minTokens: 50,

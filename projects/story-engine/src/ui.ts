@@ -48,10 +48,16 @@ const toggleButton = (
       : {},
   });
 
+/**
+ * createMessageBubble injects double-newlines because it improves how NAI
+ * formats markdown. Specifically, if the AI should output `Foo\n----` it would
+ * by default produce a `<h1>Foo</h1>` but if we instead do `Foo\n\n----` we get
+ * `<p>Foo</p><hr>`.
+ */
 const createMessageBubble = (message: Message): UIPart =>
   message.role == "user"
-    ? box(row(textMarkdown(message.content || "")))
-    : row(textMarkdown(message.content || ""));
+    ? box(row(textMarkdown(message.content?.replaceAll("\n", "\n\n") || "")))
+    : row(textMarkdown(message.content?.replaceAll("\n", "\n\n") || ""));
 
 type RadioOption = {
   id: string;
@@ -126,9 +132,9 @@ export class ChatUI {
             }),
             this.agentModeSelector.render(role, [
               {
-                id: "brainstorm",
+                id: "riff",
                 icon: "cloud-lightning",
-                text: "Brainstorm",
+                text: "Riff",
               },
               {
                 id: "anchor",

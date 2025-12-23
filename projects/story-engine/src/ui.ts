@@ -127,8 +127,13 @@ export class ChatUI {
             this.agentModeSelector.render(role, [
               {
                 id: "brainstorm",
-                icon: "feather",
+                icon: "cloud-lightning",
                 text: "Brainstorm",
+              },
+              {
+                id: "anchor",
+                icon: "anchor",
+                text: "Anchor",
               },
               {
                 id: "critic",

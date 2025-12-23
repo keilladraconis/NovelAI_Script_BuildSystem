@@ -6,6 +6,9 @@
 
 /** Changes
  * Set MIN_REMAINING_TOKENS to prevent loops attempting to hit exactly 8 tokens.
+ * Fix stopping after min tokens reached
+ * First generation always goes through even if requested tokens is extremely short.
+ * Drain remaining choices to the streaming callback even if very short.
  */
 
 // ===== CONSTANTS =====
@@ -269,10 +272,15 @@ export async function hyperGenerate(
     `hyperGenerate beginning loop for ${remainingTokens} Tokens, ${remainingContinuations} Continuations.`,
   );
 
-  while (remainingTokens > MIN_REMAINING_TOKENS && remainingContinuations > 0) {
+  while (
+    remainingContinuations == ensuredParams.maxContinuations ||
+    (remainingTokens > MIN_REMAINING_TOKENS && remainingContinuations > 0)
+  ) {
     hyperLog(
       `hyperGenerate... ${remainingTokens} Tokens, ${remainingContinuations} Continuations.`,
     );
+    accumulatedChoices = []; // Clear response buffer before continuing generation.
+
     const context: Message[] = [
       ...(systemMessage !== undefined ? [systemMessage] : []),
       ...(rolloverHelper.read() as unknown as Message[]),
@@ -305,7 +313,6 @@ export async function hyperGenerate(
       behaviour,
       signal,
     );
-    accumulatedChoices = []; // Generation finished. Clear anything held in the streaming response buffer.
 
     const trimmedResponseText = (response.choices[0].text =
       response.choices[0].text.replace(/\n.*$/, "") + "\n");
@@ -321,7 +328,7 @@ export async function hyperGenerate(
 
     if (
       finish_reason === "stop" &&
-      ensuredParams.maxTokens - remainingTokens < ensuredParams.minTokens
+      ensuredParams.maxTokens - remainingTokens > ensuredParams.minTokens
     ) {
       hyperLog("Stop generation after minTokens reached with stop.");
       break;
@@ -333,6 +340,8 @@ export async function hyperGenerate(
     });
     accumulatedResponses.push(response);
   }
+  // Drain remaining choices to the callback. Will be a partial paragraph.
+  if (callback) callback(accumulatedChoices, true);
   hyperLog(`hyperGenerate finished.`);
 
   return accumulatedResponses;

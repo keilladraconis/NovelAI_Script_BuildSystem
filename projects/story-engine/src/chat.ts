@@ -7,7 +7,7 @@ import {
 const { get, set } = api.v1.storyStorage;
 const { get: getConfig } = api.v1.config;
 
-type AgentRole = "brainstorm" | "critic";
+type AgentRole = "brainstorm" | "critic" | "anchor";
 
 // Types
 interface Agent {
@@ -20,7 +20,7 @@ interface Agent {
 }
 
 class BrainstormAgent implements Agent {
-  maxTokens = 1000;
+  maxTokens = 250;
   userPrompt = "";
   assistantHeader = "----\n**Brainstorm:**\n\n";
   role: AgentRole = "brainstorm";
@@ -32,9 +32,9 @@ class BrainstormAgent implements Agent {
 }
 
 class CriticAgent implements Agent {
-  maxTokens = 250;
+  maxTokens = 1000;
   userPrompt = "";
-  assistantHeader = "----\n**Critic:**\n\n";
+  assistantHeader = "----\n**Critic & Director:**\n\n";
   role: AgentRole = "critic";
 
   async load() {
@@ -43,8 +43,21 @@ class CriticAgent implements Agent {
   }
 }
 
+class AnchorAgent implements Agent {
+  maxTokens = 1000;
+  userPrompt = "";
+  assistantHeader = "----\n**Anchor:**\n\n";
+  role: AgentRole = "anchor";
+
+  async load() {
+    const prompt = await getConfig("anchor_prompt");
+    return (this.userPrompt = prompt);
+  }
+}
+
 const AGENTS = {
   brainstorm: BrainstormAgent,
+  anchor: AnchorAgent,
   critic: CriticAgent,
 };
 
@@ -58,7 +71,7 @@ export class Chat {
   isAgentResponding = false;
   minTokens = 25;
   systemPrompt = "";
-  agent: BrainstormAgent | CriticAgent = new BrainstormAgent();
+  agent: AnchorAgent | BrainstormAgent | CriticAgent = new BrainstormAgent();
 
   // Hooks
   onUpdate = () => {};
@@ -74,22 +87,17 @@ export class Chat {
   };
 
   handleStreamMessage = (text: string, final: boolean) => {
-    const messageToAppend = this.messages.at(-1);
-    if (messageToAppend !== undefined)
-      messageToAppend.content = messageToAppend.content + text;
+    const messageToAppend = this.messages.at(-1)!;
+    // Add trailing whitespace to the end of the message if needed
+    if (!/\s$/.test(messageToAppend.content!))
+      messageToAppend.content = messageToAppend.content + " ";
+    messageToAppend.content = messageToAppend.content + text;
     if (final) {
       this.save();
     } else {
       this.onUpdate();
     }
   };
-
-  ensureAssistantMessage(text: string) {
-    if (!this.isAgentResponding) {
-      this.addMessage("assistant", text);
-    }
-  }
-
   handleAgentSwitch = (role: string) => {
     if (this.agent.role == role) return;
     this.agent = new AGENTS[role as AgentRole]();
@@ -107,6 +115,12 @@ export class Chat {
     this.generateResponse();
   };
   // Functions
+  ensureAssistantMessage(text: string) {
+    if (!this.isAgentResponding) {
+      this.addMessage("assistant", text);
+      this.isAgentResponding = true;
+    }
+  }
 
   async load() {
     return Promise.all([
@@ -139,17 +153,20 @@ export class Chat {
   }
 
   private async generateResponse() {
-    // Build conversation history for AI
+    // Build conversation history for AI. Our prompts need to be double-spaced for GLM.
     const context: Message[] = [
-      { role: "system", content: this.systemPrompt + "\n" },
       {
-        role: "user",
-        content: `${this.agent.userPrompt} /nothink\n`,
+        role: "system",
+        content: this.systemPrompt.replaceAll("\n", "\n\n") + "\n\n",
       },
       ...this.messages,
       {
+        role: "user",
+        content: `${this.agent.userPrompt.replaceAll("\n", "\n\n")} /nothink\n\n`,
+      },
+      {
         role: "assistant",
-        content: "<think></think>Understood.\n[Continuing:]\n",
+        content: "<think></think>Understood.\n\n[Continuing:]\n",
       },
     ];
 

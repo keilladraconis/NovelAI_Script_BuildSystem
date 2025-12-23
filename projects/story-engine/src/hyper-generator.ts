@@ -11,6 +11,7 @@
  * Drain remaining choices to the streaming callback even if very short.
  * Delete hyperGenerateText and modify hyperGenerate so it just deals in text.
  * No more attempting to trim-to-paragraphs. Yolo continuation.
+ * Fix continuations by putting the last message in context after the continuation user prompt.
  */
 
 // ===== CONSTANTS =====

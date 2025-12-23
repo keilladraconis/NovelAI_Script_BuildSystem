@@ -1,7 +1,11 @@
 /** HYPER GENERATOR
  * License: MIT; Credit to OccultSage for the original form and inspiration
  * Authors: Keilla
- * Version: 0.1.1
+ * Version: 0.1.2
+ */
+
+/** Changes
+ * Set MIN_REMAINING_TOKENS to prevent loops attempting to hit exactly 8 tokens.
  */
 
 // ===== CONSTANTS =====
@@ -16,6 +20,7 @@ const DEFAULT_GENERATE_OPTIONS = {
 };
 
 const API_GENERATE_LIMIT = 1024;
+const MIN_REMAINING_TOKENS = 25; // Do not continue generation below this number of tokens. Prevents repeated loops attempting to hit 8 tokens...
 
 // ===== TYPES =====
 
@@ -264,7 +269,7 @@ export async function hyperGenerate(
     `hyperGenerate beginning loop for ${remainingTokens} Tokens, ${remainingContinuations} Continuations.`,
   );
 
-  while (remainingTokens > 0 && remainingContinuations > 0) {
+  while (remainingTokens > MIN_REMAINING_TOKENS && remainingContinuations > 0) {
     hyperLog(
       `hyperGenerate... ${remainingTokens} Tokens, ${remainingContinuations} Continuations.`,
     );

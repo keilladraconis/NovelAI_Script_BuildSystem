@@ -37,11 +37,10 @@ const log = api.v1.log;
     await chat.load();
 
     ui.onSendMessage = chat.handleSendMessage;
-    ui.onBrainstorm = chat.handleBrainstorm;
-    ui.onCritic = chat.handleCritic;
     ui.onClear = chat.handleClear;
+    ui.agentModeSelector.onSwitch = chat.handleAgentSwitch;
 
-    const updatePanel = () => ui.updatePanel(chat);
+    const updatePanel = () => ui.render(chat);
 
     chat.onUpdate = updatePanel;
 

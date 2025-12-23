@@ -7,6 +7,47 @@ import {
 const { get, set } = api.v1.storyStorage;
 const { get: getConfig } = api.v1.config;
 
+type AgentRole = "brainstorm" | "critic";
+
+// Types
+interface Agent {
+  maxTokens: number;
+  userPrompt: string;
+  assistantHeader: string;
+  role: AgentRole;
+
+  load(): Promise<string>;
+}
+
+class BrainstormAgent implements Agent {
+  maxTokens = 1000;
+  userPrompt = "";
+  assistantHeader = "----\n**Brainstorm:**\n\n";
+  role: AgentRole = "brainstorm";
+
+  async load() {
+    const prompt = await getConfig("brainstorm_prompt");
+    return (this.userPrompt = prompt);
+  }
+}
+
+class CriticAgent implements Agent {
+  maxTokens = 250;
+  userPrompt = "";
+  assistantHeader = "----\n**Critic:**\n\n";
+  role: AgentRole = "critic";
+
+  async load() {
+    const prompt = await getConfig("critic_prompt");
+    return (this.userPrompt = prompt);
+  }
+}
+
+const AGENTS = {
+  brainstorm: BrainstormAgent,
+  critic: CriticAgent,
+};
+
 export class Chat {
   // Constants
   CHAT_HISTORY_KEY = "kse-chat-history";
@@ -14,10 +55,10 @@ export class Chat {
   // Properties
   messages: Message[] = [];
   isGenerating = false;
-  systemPrompt: string = "";
-  brainstormPrompt: string = "";
-  criticPrompt: string = "";
-  synopsisPrompt: string = "";
+  isAgentResponding = false;
+  minTokens = 25;
+  systemPrompt = "";
+  agent: BrainstormAgent | CriticAgent = new BrainstormAgent();
 
   // Hooks
   onUpdate = () => {};
@@ -27,7 +68,9 @@ export class Chat {
   handleClear = () => {
     this.messages = [];
     this.isGenerating = false;
+    this.agent = new BrainstormAgent();
     this.save();
+    this.load();
   };
 
   handleStreamMessage = (text: string, final: boolean) => {
@@ -41,18 +84,28 @@ export class Chat {
     }
   };
 
-  handleBrainstorm = () => {
-    this.addMessage("assistant", "----\n**Brainstorm:**\n");
-    this.generateResponse(this.brainstormPrompt, 450);
-  };
-  handleCritic = () => {
-    this.addMessage("assistant", "----\n**Critic:**\n");
-    this.generateResponse(this.criticPrompt, 450);
+  ensureAssistantMessage(text: string) {
+    if (!this.isAgentResponding) {
+      this.addMessage("assistant", text);
+    }
+  }
+
+  handleAgentSwitch = (role: string) => {
+    if (this.agent.role == role) return;
+    this.agent = new AGENTS[role as AgentRole]();
+    this.agent.load();
+    this.isAgentResponding = false;
+    this.onUpdate();
   };
 
-  handleSendMessage = (content: string) =>
-    this.addMessage("user", content + "\n");
-
+  handleSendMessage = (content: string) => {
+    if (content.length > 0) {
+      this.addMessage("user", content + "\n");
+      this.isAgentResponding = false;
+    }
+    this.ensureAssistantMessage(this.agent.assistantHeader);
+    this.generateResponse();
+  };
   // Functions
 
   async load() {
@@ -63,16 +116,7 @@ export class Chat {
       getConfig("system_prompt").then(
         (systemPrompt: string) => (this.systemPrompt = systemPrompt),
       ),
-      getConfig("brainstorm_prompt").then(
-        (brainstormPrompt: string) =>
-          (this.brainstormPrompt = brainstormPrompt),
-      ),
-      getConfig("critic_prompt").then(
-        (criticPrompt: string) => (this.criticPrompt = criticPrompt),
-      ),
-      getConfig("synopsis_prompt").then(
-        (synopsisPrompt: string) => (this.synopsisPrompt = synopsisPrompt),
-      ),
+      this.agent.load(),
     ]);
   }
 
@@ -94,13 +138,13 @@ export class Chat {
     this.save();
   }
 
-  private async generateResponse(userMessage: string, length: number) {
+  private async generateResponse() {
     // Build conversation history for AI
     const context: Message[] = [
       { role: "system", content: this.systemPrompt + "\n" },
       {
         role: "user",
-        content: `${userMessage} /nothink\n`,
+        content: `${this.agent.userPrompt} /nothink\n`,
       },
       ...this.messages,
       {
@@ -116,7 +160,7 @@ export class Chat {
       context,
       {
         minTokens: 50,
-        maxTokens: length,
+        maxTokens: this.agent.maxTokens,
         onBudgetWait: createContinueModalCallback(signal),
       },
       this.handleStreamMessage,
@@ -127,6 +171,7 @@ export class Chat {
       .finally(() => {
         this.isGenerating = false;
         this.onUpdate();
+        this.save();
       });
   }
 }

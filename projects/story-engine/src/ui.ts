@@ -30,17 +30,61 @@ const button = (
   { disabled }: Partial<UIPartButton> = {},
 ) => part.button({ text, callback, disabled, iconId });
 
+const toggleButton = (
+  text: string = "",
+  callback: () => void,
+  iconId: IconId | undefined,
+  toggled: boolean,
+) =>
+  part.button({
+    text,
+    callback,
+    iconId,
+    style: toggled
+      ? {
+          "background-color": "rgb(245, 243, 194)",
+          color: "rgb(19, 21, 44)",
+        }
+      : {},
+  });
+
 const createMessageBubble = (message: Message): UIPart =>
   message.role == "user"
     ? box(row(textMarkdown(message.content || "")))
     : row(textMarkdown(message.content || ""));
 
+type RadioOption = {
+  id: string;
+  text: string;
+  icon?: IconId;
+};
+
+// RadioGroup implements a radio button group.
+export class RadioGroup {
+  onSwitch = (_text: string) => {};
+
+  handleSwitch = (current: string, next: string) => {
+    if (current == next) return;
+    this.onSwitch(next);
+  };
+
+  render = (selected: string, options: RadioOption[]) =>
+    row(
+      ...options.map((o) =>
+        toggleButton(
+          o.text,
+          () => this.handleSwitch(selected, o.id),
+          o.icon,
+          o.id == selected,
+        ),
+      ),
+    );
+}
+
 // ChatUI is a set of pure functions.
 export class ChatUI {
   // Hooks
   onSendMessage = (_text: string) => {};
-  onBrainstorm = () => {};
-  onCritic = () => {};
   onClear = () => {};
 
   // Handlers
@@ -49,8 +93,6 @@ export class ChatUI {
       set(INPUT_ID, "").then(() => this.onSendMessage(text)),
     );
   handleClear = () => this.onClear();
-  handleBrainstorm = () => this.onBrainstorm();
-  handleCritic = () => this.onCritic();
 
   // Helpers
   sidebar = extension.sidebarPanel({
@@ -64,7 +106,10 @@ export class ChatUI {
     return api.v1.ui.register([this.sidebar]);
   }
 
-  updatePanel({ messages, isGenerating }: Chat) {
+  // subcomponents
+  agentModeSelector = new RadioGroup();
+
+  render({ messages, isGenerating, agent: { role } }: Chat) {
     return update([
       {
         ...this.sidebar,
@@ -79,10 +124,18 @@ export class ChatUI {
                   .map(createMessageBubble),
               ),
             }),
-            row(
-              button("Brainstorm", this.handleBrainstorm, "feather"),
-              button("Critic", this.handleCritic, "flag"),
-            ),
+            this.agentModeSelector.render(role, [
+              {
+                id: "brainstorm",
+                icon: "feather",
+                text: "Brainstorm",
+              },
+              {
+                id: "critic",
+                icon: "flag",
+                text: "Critic",
+              },
+            ]),
             row(
               part.multilineTextInput({
                 storageKey: `story:${INPUT_ID}`,

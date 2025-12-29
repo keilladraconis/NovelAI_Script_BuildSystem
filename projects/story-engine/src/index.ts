@@ -6,46 +6,26 @@ import { ChatUI } from "./ui";
 // Helpers
 const log = api.v1.log;
 
-/**
- * Utilities
- */
-
-// const setInterval = (
-//   callback: Function,
-//   interval: number,
-// ): (() => Promise<void>) => {
-//   let timerId: number;
-
-//   const tick = async () => {
-//     timerId = await api.v1.timers.setTimeout(() => {
-//       callback(clear);
-//       tick();
-//     }, interval);
-//   };
-
-//   const clear = async () => api.v1.timers.clearTimeout(timerId);
-
-//   tick();
-
-//   return clear;
-// };
-
 (async () => {
   try {
     const ui = new ChatUI();
     const chat = new Chat();
     await chat.load();
 
+    // Wiring the UI to the Chat state
     ui.onSendMessage = chat.handleSendMessage;
     ui.onClear = chat.handleClear;
+    ui.onCancel = chat.handleCancel;
     ui.agentModeSelector.onSwitch = chat.handleAgentSwitch;
-
-    const updatePanel = () => ui.render(chat);
-
-    chat.onUpdate = updatePanel;
+    ui.agentModeSelector.onAutoCheckbox = (isChecked: boolean) => {
+      chat.autoMode = isChecked;
+      chat.autoCount = 5;
+    };
+    chat.onUpdate = ui.render.bind(ui);
+    chat.onBudgetWait = async () => ui.sendButton.setInteractionWaiting();
 
     ui.register();
-    updatePanel();
+    ui.render(chat);
   } catch (e) {
     log("Startup error:", e);
   }

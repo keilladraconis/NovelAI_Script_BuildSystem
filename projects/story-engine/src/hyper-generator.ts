@@ -312,6 +312,7 @@ export async function hyperGenerate(
     const { text, finish_reason } = response.choices[0];
     const trimmedText = text.trim();
     const trimmedResponseTokens = await api.v1.tokenizer.encode(text, model);
+    accumulatedResponses.push(trimmedText);
 
     remainingTokens -= trimmedResponseTokens.length;
     remainingContinuations--;
@@ -334,7 +335,6 @@ export async function hyperGenerate(
       role: "assistant",
       content: trimmedText,
     });
-    accumulatedResponses.push(trimmedText);
   }
   hyperLog(`hyperGenerate finished.`);
 

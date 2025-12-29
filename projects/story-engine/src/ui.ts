@@ -4,7 +4,7 @@ const { part, update, extension } = api.v1.ui;
 const { get, set } = api.v1.storyStorage;
 
 const INPUT_ID = "kse-engine-chat-input";
-const SIDEBAR_ID = "kdg-sidebar";
+const SIDEBAR_ID = "kse-sidebar";
 
 // Basic UI helper wrappers
 const column = (...content: UIPart[]) =>
@@ -25,7 +25,7 @@ const textMarkdown = (text: string) =>
 
 const button = (
   text: string = "",
-  callback: () => void,
+  callback: () => void | undefined,
   iconId: IconId | undefined,
   { disabled }: Partial<UIPartButton> = {},
 ) => part.button({ text, callback, disabled, iconId });
@@ -56,8 +56,8 @@ const toggleButton = (
  */
 const createMessageBubble = (message: Message): UIPart =>
   message.role == "user"
-    ? box(row(textMarkdown(message.content?.replaceAll("\n", "\n\n") || "")))
-    : row(textMarkdown(message.content?.replaceAll("\n", "\n\n") || ""));
+    ? box(textMarkdown(message.content?.replaceAll("\n", "\n\n") || ""))
+    : textMarkdown(message.content?.replaceAll("\n", "\n\n") || "");
 
 type RadioOption = {
   id: string;
@@ -66,15 +66,16 @@ type RadioOption = {
 };
 
 // RadioGroup implements a radio button group.
-export class RadioGroup {
+class RadioGroup {
   onSwitch = (_text: string) => {};
+  onAutoCheckbox = (_value: boolean) => {};
 
   handleSwitch = (current: string, next: string) => {
     if (current == next) return;
     this.onSwitch(next);
   };
 
-  render = (selected: string, options: RadioOption[]) =>
+  render = (selected: string, semiAutomatic: boolean, options: RadioOption[]) =>
     row(
       ...options.map((o) =>
         toggleButton(
@@ -84,13 +85,59 @@ export class RadioGroup {
           o.id == selected,
         ),
       ),
+      part.checkboxInput({
+        initialValue: semiAutomatic,
+        label: "Auto",
+        onChange: this.onAutoCheckbox,
+      }),
     );
+}
+
+// I want this button here to do triple duty. 1. sending obviously. While generating it should turn into a red X and trigger cancellation..
+// 2. If we hit a wait event, it should turn blue or something and become like, the spinning circle.
+// 3. Ok clicked the blue circle. Now it should become a clock and include the seconds remaining until generation continues.
+class SendButton {
+  isInteractionWaiting = false;
+
+  onSend = () => {};
+  onCancel = () => {};
+
+  setInteractionWaiting() {
+    this.isInteractionWaiting = true;
+  }
+
+  handleContinue = () => {
+    this.isInteractionWaiting = false;
+  };
+  handleSend = () => {
+    this.isInteractionWaiting = false;
+    this.onSend();
+  };
+  handleCancel = () => {
+    this.isInteractionWaiting = false;
+    this.onCancel();
+  };
+
+  render = (isGenerating: boolean, waitTime: number) => {
+    if (isGenerating) {
+      if (this.isInteractionWaiting) {
+        return button("", this.handleContinue, "fast-forward");
+      } else if (waitTime > 0) {
+        return button(waitTime.toString(), () => {}, "time");
+      } else {
+        return button("", this.handleCancel, "x");
+      }
+    } else {
+      return button("", this.handleSend, "send");
+    }
+  };
 }
 
 // ChatUI is a set of pure functions.
 export class ChatUI {
   // Hooks
   onSendMessage = (_text: string) => {};
+  onCancel = () => {};
   onClear = () => {};
 
   // Handlers
@@ -98,7 +145,6 @@ export class ChatUI {
     get(INPUT_ID).then((text) =>
       set(INPUT_ID, "").then(() => this.onSendMessage(text)),
     );
-  handleClear = () => this.onClear();
 
   // Helpers
   sidebar = extension.sidebarPanel({
@@ -114,53 +160,89 @@ export class ChatUI {
 
   // subcomponents
   agentModeSelector = new RadioGroup();
+  sendButton = new SendButton();
 
-  render({ messages, isGenerating, agent: { role } }: Chat) {
+  constructor() {
+    this.sendButton.onSend = this.handleSendMessage;
+    this.sendButton.onCancel = this.onCancel;
+  }
+
+  render({
+    messages,
+    isGenerating,
+    waitTime,
+    agent: { slug: role },
+    agents,
+    autoMode: autoMode,
+  }: Chat) {
     return update([
       {
         ...this.sidebar,
         content: [
-          column(
-            textMarkdown("# Story Engine Chat"),
-            row({
-              ...{ style: { "scroll-snap-align": "bottom" } },
-              ...column(
-                ...messages
-                  .filter((m) => m.role != "system")
-                  .map(createMessageBubble),
-              ),
-            }),
-            this.agentModeSelector.render(role, [
-              {
-                id: "riff",
-                icon: "cloud-lightning",
-                text: "Riff",
-              },
-              {
-                id: "anchor",
-                icon: "anchor",
-                text: "Anchor",
-              },
-              {
-                id: "critic",
-                icon: "flag",
-                text: "Critic",
-              },
-            ]),
-            row(
-              part.multilineTextInput({
-                storageKey: `story:${INPUT_ID}`,
-                placeholder: "Type your story idea or question here...",
-                onSubmit: this.handleSendMessage,
+          {
+            ...column(
+              part.text({
+                text: "## Story Engine",
+                markdown: true,
+                style: { flex: "0 0 auto" },
               }),
-              row(
-                button("", this.handleSendMessage, "send", {
-                  disabled: isGenerating,
-                }),
-                button("", this.handleClear, "trash"),
-              ),
+              {
+                ...column(
+                  ...messages
+                    .filter((m) => m.role != "system")
+                    .map(createMessageBubble)
+                    .reverse(),
+                ),
+                ...{
+                  style: {
+                    flex: "1 1 auto",
+                    "min-height": 0,
+                    "overflow-y": "auto",
+                    display: "flex",
+                    "flex-direction": "column-reverse",
+                    "justify-content": "flex-start",
+                  },
+                },
+              },
+              {
+                ...column(
+                  this.agentModeSelector.render(
+                    role,
+                    autoMode,
+                    agents.map((a) => ({
+                      id: a.slug,
+                      icon: a.icon,
+                      text: a.title(),
+                    })),
+                  ),
+                  row(
+                    part.multilineTextInput({
+                      storageKey: `story:${INPUT_ID}`,
+                      placeholder: "Type your story idea or question here...",
+                      onSubmit: this.handleSendMessage,
+                    }),
+                    row(
+                      this.sendButton.render(isGenerating, waitTime),
+                      button("", this.onClear, "trash"),
+                    ),
+                  ),
+                ),
+                ...{
+                  style: {
+                    flex: "0 0 auto",
+                    "padding-bottom": "env(safe-area-inset-bottom)",
+                  },
+                },
+              },
             ),
-          ),
+            ...{
+              style: {
+                height: "100%",
+                "min-height": 0,
+                "justify-content": "flex-start",
+              },
+            }, // Ensure we fill the whole column and get our own scroller
+          },
         ],
       },
     ]);

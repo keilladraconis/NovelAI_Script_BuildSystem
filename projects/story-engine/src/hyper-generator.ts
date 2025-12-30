@@ -1,17 +1,11 @@
 /** HYPER GENERATOR
  * License: MIT; Credit to OccultSage for the original form and inspiration
  * Authors: Keilla
- * Version: 0.2.0
+ * Version: 0.2.1
  */
 
 /** Changes
- * Set MIN_REMAINING_TOKENS to prevent loops attempting to hit exactly 8 tokens.
- * Fix stopping after min tokens reached
- * First generation always goes through even if requested tokens is extremely short.
- * Drain remaining choices to the streaming callback even if very short.
- * Delete hyperGenerateText and modify hyperGenerate so it just deals in text.
- * No more attempting to trim-to-paragraphs. Yolo continuation.
- * Fix continuations by putting the last message in context after the continuation user prompt.
+ * Await generate call to ensure we can catch it inside of retryable generate
  */
 
 // ===== CONSTANTS =====
@@ -156,6 +150,30 @@ function hyperLog(...args: any[]) {
   api.v1.log("[hyperGenerate]", ...args);
 }
 
+/**
+ * hyperContextBuilder This function solves for needing to construct a context
+ * optimal for token cache performance and instruction, while also providing the
+ * 'continuation' context at the end of the message list such that the LLM
+ * naturally continues the thread. If there are 2 or more 'rest' messages, the
+ * 'proper prefix' will be placed in the 2nd position of the final list while
+ * the tail will be examined for length. If the tail message is long, it will be
+ * split on a newline character, and the head joined to the 'proper prefix' with
+ * the new tail being placed in the last position of the final list
+ *
+ * @param system The system message. Always present at the top of the built context.
+ * @param user The user message. Otherwise known as 'instruct' or sometimes 'prefill'. Appears 3rd from last.
+ * @param assistant The assistant message, understood by LLM to be its own voice. Also sometimes thought of as 'prefill'. Appears 2nd from last.
+ * @param rest All other messsages to include in context. Will be dynamically spliced into the context based on length and size of the content.
+ */
+function hyperContextBuilder(
+  system: Message,
+  user: Message,
+  assistant: Message,
+  ...rest: Message[]
+): Message[] {
+  return [system, ...rest, user, assistant];
+}
+
 // ===== UI =====
 
 export function createContinueModalCallback(
@@ -295,7 +313,7 @@ export async function hyperGenerate(
     );
     hyperLog(
       "Context sample:",
-      `${sample.slice(0, 40)} ... ${sample.slice(-350)}`,
+      `${sample.slice(0, 40)} ... ${sample.slice(-1000)}`,
     );
 
     const response = await hyperGenerateWithRetry(
@@ -368,7 +386,7 @@ async function hyperGenerateWithRetry(
 
   try {
     hyperLog(`Generating ${max_tokens} tokens...`);
-    return api.v1.generate(
+    return await api.v1.generate(
       [...messages],
       {
         ...sliceGenerateParams(params),

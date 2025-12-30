@@ -15,7 +15,7 @@ const log = api.v1.log;
     // Wiring the UI to the Chat state
     ui.onSendMessage = chat.handleSendMessage;
     ui.onClear = chat.handleClear;
-    ui.onCancel = chat.handleCancel;
+    ui.sendButton.onCancel = chat.handleCancel;
     ui.agentModeSelector.onSwitch = chat.handleAgentSwitch;
     ui.agentModeSelector.onAutoCheckbox = (isChecked: boolean) => {
       chat.autoMode = isChecked;

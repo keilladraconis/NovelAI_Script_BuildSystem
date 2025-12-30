@@ -1,11 +1,13 @@
 /** HYPER GENERATOR
  * License: MIT; Credit to OccultSage for the original form and inspiration
  * Authors: Keilla
- * Version: 0.2.1
+ * Version: 0.3.0
  */
 
 /** Changes
  * Await generate call to ensure we can catch it inside of retryable generate
+ * Add hyperContextBuilder function to assist with building context even with huge message contents.
+ * Properly handle cancellation signal and stop hyperGenrating.
  */
 
 // ===== CONSTANTS =====
@@ -154,24 +156,45 @@ function hyperLog(...args: any[]) {
  * hyperContextBuilder This function solves for needing to construct a context
  * optimal for token cache performance and instruction, while also providing the
  * 'continuation' context at the end of the message list such that the LLM
- * naturally continues the thread. If there are 2 or more 'rest' messages, the
- * 'proper prefix' will be placed in the 2nd position of the final list while
- * the tail will be examined for length. If the tail message is long, it will be
- * split on a newline character, and the head joined to the 'proper prefix' with
- * the new tail being placed in the last position of the final list
+ * naturally continues the thread. The last rest message is always examined for
+ * length. If it is less than 500 characters, then it is inserted at the end of
+ * the messages array. If it is more, then it is split on a newline into two
+ * messages. The proper prefix of rest is inserted at the 2nd position, while
+ * the tail of rest is inserted at the end.
  *
  * @param system The system message. Always present at the top of the built context.
  * @param user The user message. Otherwise known as 'instruct' or sometimes 'prefill'. Appears 3rd from last.
  * @param assistant The assistant message, understood by LLM to be its own voice. Also sometimes thought of as 'prefill'. Appears 2nd from last.
  * @param rest All other messsages to include in context. Will be dynamically spliced into the context based on length and size of the content.
  */
-function hyperContextBuilder(
+export function hyperContextBuilder(
   system: Message,
   user: Message,
   assistant: Message,
   ...rest: Message[]
 ): Message[] {
-  return [system, ...rest, user, assistant];
+  const TAIL_THRESHOLD = 500;
+  const head = rest.slice(0, -1);
+  const tail = rest.at(-1);
+  if (tail && tail.content && tail.content.length > TAIL_THRESHOLD) {
+    const newlinePos = tail.content.slice(0, -TAIL_THRESHOLD).lastIndexOf("\n");
+    if (newlinePos > 0) {
+      const newHead = [
+        ...head,
+        {
+          ...tail,
+          content: tail.content.slice(0, newlinePos),
+        },
+      ];
+      const newTail = {
+        ...tail,
+        content: tail.content.slice(newlinePos + 1),
+      };
+      return [system, ...newHead, user, assistant, newTail];
+    }
+  }
+
+  return [system, ...head, user, assistant, ...(tail ? [tail] : [])];
 }
 
 // ===== UI =====
@@ -254,7 +277,7 @@ export async function hyperGenerate(
   const choiceHandler =
     callback !== undefined
       ? (choices: GenerationChoice[], final: boolean): void =>
-          callback(choices[0].text, final)
+          callback(choices[0] ? choices[0].text : "", final)
       : undefined;
 
   // Find system message if present
@@ -289,7 +312,9 @@ export async function hyperGenerate(
 
   while (
     remainingContinuations == maxContinuations ||
-    (remainingTokens > MIN_REMAINING_TOKENS && remainingContinuations > 0)
+    (remainingTokens > MIN_REMAINING_TOKENS &&
+      remainingContinuations > 0 &&
+      !signal?.cancelled)
   ) {
     hyperLog(
       `... ${remainingTokens} Tokens, ${remainingContinuations} Continuations.`,
@@ -327,6 +352,11 @@ export async function hyperGenerate(
       signal,
     );
 
+    // When generation is cancelled abruptly, choices could be empty.
+    if (response.choices[0] == undefined) {
+      hyperLog("Generation cancelled by signal, choices empty.");
+      break;
+    }
     const { text, finish_reason } = response.choices[0];
     const trimmedText = text.trim();
     const trimmedResponseTokens = await api.v1.tokenizer.encode(text, model);

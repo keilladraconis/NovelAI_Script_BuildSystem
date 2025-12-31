@@ -1,13 +1,11 @@
 /** HYPER GENERATOR
  * License: MIT; Credit to OccultSage for the original form and inspiration
  * Authors: Keilla
- * Version: 0.3.0
+ * Version: 0.4.0
  */
 
 /** Changes
- * Await generate call to ensure we can catch it inside of retryable generate
- * Add hyperContextBuilder function to assist with building context even with huge message contents.
- * Properly handle cancellation signal and stop hyperGenrating.
+ * hyperContextBuilder signature modified to receive enable_thinking boolean. Thoughts require a contentless assistant suffix on the messages.
  */
 
 // ===== CONSTANTS =====
@@ -166,12 +164,14 @@ function hyperLog(...args: any[]) {
  * @param user The user message. Otherwise known as 'instruct' or sometimes 'prefill'. Appears 3rd from last.
  * @param assistant The assistant message, understood by LLM to be its own voice. Also sometimes thought of as 'prefill'. Appears 2nd from last.
  * @param rest All other messsages to include in context. Will be dynamically spliced into the context based on length and size of the content.
+ * @param thinking Whether or not thinking-enabled prompt building is needed. Appends empty assistant.
  */
 export function hyperContextBuilder(
   system: Message,
   user: Message,
   assistant: Message,
-  ...rest: Message[]
+  rest: Message[],
+  thinking: boolean = false,
 ): Message[] {
   const TAIL_THRESHOLD = 500;
   const head = rest.slice(0, -1);
@@ -190,11 +190,25 @@ export function hyperContextBuilder(
         ...tail,
         content: tail.content.slice(newlinePos + 1),
       };
-      return [system, ...newHead, user, assistant, newTail];
+      return [
+        system,
+        ...newHead,
+        user,
+        assistant,
+        newTail,
+        ...(thinking ? [{ role: "assistant" as const }] : []), // If thinking, append an empty assistant, required to activate thoughts.
+      ];
     }
   }
 
-  return [system, ...head, user, assistant, ...(tail ? [tail] : [])];
+  return [
+    system,
+    ...head,
+    user,
+    assistant,
+    ...(tail ? [tail] : []),
+    ...(thinking ? [{ role: "assistant" as const }] : []), // If thinking, append an empty assistant, required to activate thoughts.
+  ];
 }
 
 // ===== UI =====

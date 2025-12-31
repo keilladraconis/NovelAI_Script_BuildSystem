@@ -15,14 +15,11 @@ const log = api.v1.log;
     // Wiring the UI to the Chat state
     ui.onSendMessage = chat.handleSendMessage;
     ui.onClear = chat.handleClear;
-    ui.sendButton.onCancel = chat.handleCancel;
-    ui.agentModeSelector.onSwitch = chat.handleAgentSwitch;
-    ui.agentModeSelector.onAutoCheckbox = (isChecked: boolean) => {
-      chat.autoMode = isChecked;
-      chat.autoCount = 5;
-    };
+    ui.onCancel = chat.handleCancel;
+    ui.onAgentSelect = chat.handleAgentSwitch;
+    ui.onAuto = chat.handleAuto;
     chat.onUpdate = ui.render.bind(ui);
-    chat.onBudgetWait = async () => ui.sendButton.setInteractionWaiting();
+    chat.onBudgetWait = async () => ui.handleBudgetWait();
 
     ui.register();
     ui.render(chat);

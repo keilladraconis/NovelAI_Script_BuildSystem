@@ -1,4 +1,4 @@
-import { hyperGenerate } from "./hyper-generator";
+import { hyperContextBuilder, hyperGenerate } from "./hyper-generator";
 import type {
   OnBudgetWaitCallback,
   OnBudgetResumeCallback,
@@ -15,12 +15,31 @@ interface Agent {
   slug: string;
   icon: IconId;
 
+  // Generation parameters
+  temperature: number;
+  top_p: number;
+  top_k: number;
+  min_p: number;
+  frequency_penalty: number;
+  presence_penalty: number;
+  stop: ["###", "---"];
+
   title(): string;
   header(): string;
   load(): Promise<void>;
 }
 
 abstract class Agent implements Agent {
+  maxTokens = 2048;
+  temperature = 1.0;
+  top_p = 0.95;
+  top_k = 0; // Intentionally disable in favor of top_p and min_p.
+  min_p = 0;
+  presence_penalty = 0;
+  frequency_penalty = 0;
+
+  userPrompt = "";
+
   title() {
     return this.slug.charAt(0).toUpperCase() + this.slug.slice(1);
   }
@@ -36,27 +55,47 @@ abstract class Agent implements Agent {
 }
 
 class BrainstormAgent extends Agent {
-  maxTokens = 2048;
-  userPrompt = "";
+  maxTokens = 1024;
+  temperature = 1.1;
+  presence_penalty = 0.7;
+
   slug = "brainstorm";
   icon: IconId = "cloud-lightning";
 }
 
-class CriticAgent extends Agent {
-  maxTokens = 2048;
-  userPrompt = "";
-  slug = "critic";
+class CritiqueAgent extends Agent {
+  maxTokens = 800;
+  temperature = 0.3;
+  top_p = 0.7;
+  presence_penalty = 0.2;
+  frequency_penalty = 0.3;
+
+  slug = "critique";
   icon: IconId = "flag";
 }
 
-class AnchorAgent extends Agent {
-  maxTokens = 2048;
-  userPrompt = "";
-  slug = "anchor";
-  icon: IconId = "anchor";
+class RefineAgent extends Agent {
+  maxTokens = 1500;
+  temperature = 0.5;
+  top_p = 0.8;
+  presence_penalty = 0.4;
+  frequency_penalty = 0.1;
+
+  slug = "refine";
+  icon: IconId = "pen-tool";
 }
 
-const AGENTS = [BrainstormAgent, AnchorAgent, CriticAgent];
+class SummaryAgent extends Agent {
+  maxTokens = 2500;
+  temperature = 0.8;
+  presence_penalty = 1.2;
+  frequency_penalty = 0.1;
+
+  slug = "summary";
+  icon: IconId = "package";
+}
+
+const AGENTS = [BrainstormAgent, CritiqueAgent, RefineAgent, SummaryAgent];
 
 /**
  * Utilities
@@ -82,26 +121,36 @@ const setInterval = (
   return clear;
 };
 
+const currentEpochS = () => Math.floor(Date.now() / 1000);
+
 export class Chat {
   // Constants
-  CHAT_HISTORY_KEY = "kse-chat-history";
+  static CHAT_HISTORY_KEY = "kse-chat-history";
+  static AUTO_FLOW = {
+    brainstorm: "critique",
+    critique: "refine",
+    refine: "brainstorm",
+    summary: "brainstorm",
+  };
+  static MAX_AUTO_CYCLES = 3;
 
   // Properties
   messages: Message[] = [];
   isGenerating = false;
   waitTime = 0;
-  isAgentResponding = false;
   minTokens = 25;
   systemPrompt = "";
   autoMode = false;
-  autoCount = 0;
   agents: Agent[] = AGENTS.map((a) => {
     const theAgent = new a();
     theAgent.load();
     return theAgent;
   });
   agent: Agent;
-  clearInterval = () => {};
+  clearInterval = async () => {};
+  cancelSignal: CancellationSignal | undefined = undefined;
+  lastResponder: string = "user";
+  autoCycleCount = 0;
 
   constructor() {
     this.agent = this.agents[0];
@@ -135,54 +184,53 @@ export class Chat {
   handleAgentSwitch = (role: string) => {
     if (this.agent.slug == role) return;
     this.agent = this.agents.find((a) => a.slug == role)!;
-    this.agent.load();
     this.onUpdate(this);
   };
 
   handleSendMessage = (content: string) => {
     if (content.length > 0) {
       this.addMessage("user", content + "\n");
-      this.isAgentResponding = false;
+      this.lastResponder = "user";
     }
-    this.ensureAssistantMessage(this.agent.header());
+    if (this.lastResponder != this.agent.slug) {
+      this.addMessage("assistant", this.agent.header());
+    }
     this.generateResponse();
   };
 
-  handleSemiAutomaticContinuation = (response: string) => {
-    if (!this.autoMode || this.autoCount <= 0) return;
-    // If we're on the Critic agent, we'll have to parse the response to figure out what the next should be.
-    // If we're on any other agent, do Critic next.
-    if (this.agent.slug == "critic") {
-      log("[HSAC] attempting to find TO_AGENT in this:", response);
-      const toAgentMatch = /TO_AGENT: (\w+)/.exec(response);
-      if (toAgentMatch) {
-        this.handleAgentSwitch(toAgentMatch[1].toLowerCase());
-        this.autoCount--;
-        this.handleSendMessage(""); // Automatically trigger next gen.
-      } else {
-        log("[handleSemiAutomaticContinuation] Failed to switch agent.");
-      }
-    } else {
-      this.handleAgentSwitch("critic");
-      this.autoCount--;
-      this.handleSendMessage(""); // Automatically trigger next gen.
-    }
-  };
+  autoModeFlow() {
+    if (!this.autoMode) return;
+    if (this.lastResponder == "refiner") this.autoCycleCount++;
 
+    if (this.autoCycleCount < Chat.MAX_AUTO_CYCLES) {
+      const next =
+        Chat.AUTO_FLOW[this.lastResponder as keyof typeof Chat.AUTO_FLOW];
+      this.handleAgentSwitch(next);
+    } else {
+      this.autoMode = false;
+      this.autoCycleCount = 0;
+      this.handleAgentSwitch("summary");
+    }
+    this.handleSendMessage("");
+  }
+
+  // Really, the interval is not reliable as a clock, so we have to capture the current epoch seconds
   handleBudgetWait: OnBudgetWaitCallback = async (
     available: number,
     needed: number,
     time: number,
   ) => {
-    this.onBudgetWait(available, needed, time);
-    this.waitTime = Math.floor(time / 1000);
-    this.clearInterval = setInterval(this.handleWaitingTick, 1000);
-  };
+    // Ensure that if there's an old interval we clear it.
+    await this.clearInterval();
 
-  handleWaitingTick = (clear: () => Promise<void>) => {
-    this.waitTime--;
-    if (this.waitTime <= 0) clear();
-    this.onUpdate(this);
+    const waitEnd = currentEpochS() + Math.floor(time / 1000);
+    this.onBudgetWait(available, needed, time);
+
+    this.clearInterval = setInterval((clear: Function) => {
+      this.waitTime = waitEnd - currentEpochS();
+      if (this.waitTime <= 0) clear();
+      this.onUpdate(this);
+    }, 1000);
   };
 
   handleBudgetResume: OnBudgetResumeCallback | undefined = () => {
@@ -190,19 +238,26 @@ export class Chat {
     this.waitTime = 0;
   };
 
-  handleCancel = () => {};
+  handleCancel = () => {
+    if (this.cancelSignal) this.cancelSignal.cancel();
+    this.autoMode = false;
+  };
+
+  handleAuto = (value: boolean) => {
+    this.autoMode = value;
+    // When auto mode is switched off, fire cancellation signal and clear the interval and waitTime.
+    if (!this.autoMode) {
+      this.clearInterval();
+      this.cancelSignal?.cancel();
+      this.waitTime = 0;
+      this.isGenerating = false;
+    }
+  };
 
   // Functions
-  ensureAssistantMessage(text: string) {
-    if (!this.isAgentResponding) {
-      this.addMessage("assistant", text);
-      this.isAgentResponding = true;
-    }
-  }
-
   async load() {
     return Promise.all([
-      get(this.CHAT_HISTORY_KEY)
+      get(Chat.CHAT_HISTORY_KEY)
         .then((history) => (this.messages = JSON.parse(history)))
         .catch(() => (this.messages = [])),
       getConfig("system_prompt").then(
@@ -216,7 +271,7 @@ export class Chat {
     this.messages = this.messages.filter(
       (m) => m.content && m.content.length > 0,
     );
-    set(this.CHAT_HISTORY_KEY, JSON.stringify(this.messages)).then(() => {
+    set(Chat.CHAT_HISTORY_KEY, JSON.stringify(this.messages)).then(() => {
       this.onUpdate(this);
     });
   }
@@ -231,48 +286,56 @@ export class Chat {
   }
 
   private async generateResponse() {
-    // Build conversation history for AI. Our prompts need to be double-spaced for GLM.
-    const context: Message[] = [
+    const context = hyperContextBuilder(
       {
         role: "system",
-        content: this.systemPrompt.replaceAll("\n", "\n\n") + "\n\n",
+        content: this.systemPrompt.replaceAll("\n", "\n\n") + "\n\n", //  Our prompts need to be double-spaced for GLM.
       },
-      ...this.messages.slice(0, -1),
       {
         role: "user",
-        content: `${this.agent.userPrompt.replaceAll("\n", "\n\n")} /nothink\n\n`,
+        content: `${this.agent.userPrompt.replaceAll("\n", "\n\n")}\n\nLimit your response to ${Math.floor(this.agent.maxTokens / 1.5)} words.\n\n`,
       },
       {
         role: "assistant",
-        content: "<think></think>Understood.\n\n[Continuing:]\n",
+        content: `Understood.\n\n[Continuing:]\n`,
       },
-      this.messages.at(-1)!,
-    ];
+      this.messages,
+    );
 
     this.isGenerating = true;
-    const signal = await api.v1.createCancellationSignal();
-    this.handleCancel = signal.cancel;
+    this.lastResponder = this.agent.slug;
+    this.cancelSignal = await api.v1.createCancellationSignal();
 
     try {
-      const result = await hyperGenerate(
+      const response = await hyperGenerate(
         context,
         {
           minTokens: 50,
           maxTokens: this.agent.maxTokens,
           onBudgetWait: this.handleBudgetWait,
           onBudgetResume: this.handleBudgetResume,
+          temperature: this.agent.temperature,
+          top_p: this.agent.top_p,
+          top_k: this.agent.top_k,
+          min_p: this.agent.min_p,
+          presence_penalty: this.agent.presence_penalty,
+          frequency_penalty: this.agent.frequency_penalty,
         },
         this.handleStreamMessage,
-        "blocking",
-        signal,
+        "background",
+        this.cancelSignal,
       );
+
       this.isGenerating = false;
-      signal.dispose();
+      this.cancelSignal.dispose();
+      // Summary replaces messages with a summary.
+      if (this.agent.slug == "summary") {
+        this.messages = [];
+        this.addMessage("assistant", response);
+      }
       this.onUpdate(this);
       this.save();
-      if (this.autoMode) {
-        this.handleSemiAutomaticContinuation(result);
-      }
+      this.autoModeFlow();
     } catch (error: any) {
       api.v1.log("Generation failed:", error);
     }

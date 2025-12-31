@@ -6,6 +6,10 @@ const { get, set } = api.v1.storyStorage;
 const INPUT_ID = "kse-engine-chat-input";
 const SIDEBAR_ID = "kse-sidebar";
 
+// Colors
+const NAI_YELLOW = "rgb(245, 243, 194)";
+const NAI_NAVY = "rgb(19, 21, 44)";
+
 // Basic UI helper wrappers
 const column = (...content: UIPart[]) =>
   part.column({ content, style: { width: "100%" } });
@@ -42,8 +46,8 @@ const toggleButton = (
     iconId,
     style: toggled
       ? {
-          "background-color": "rgb(245, 243, 194)",
-          color: "rgb(19, 21, 44)",
+          "background-color": NAI_YELLOW,
+          color: NAI_NAVY,
         }
       : {},
   });
@@ -75,6 +79,8 @@ class RadioGroup {
     this.onSwitch(next);
   };
 
+  handleAutoCheckbox = (value: boolean) => this.onAutoCheckbox(value);
+
   render = (selected: string, semiAutomatic: boolean, options: RadioOption[]) =>
     row(
       ...options.map((o) =>
@@ -88,7 +94,7 @@ class RadioGroup {
       part.checkboxInput({
         initialValue: semiAutomatic,
         label: "Auto",
-        onChange: this.onAutoCheckbox,
+        onChange: this.handleAutoCheckbox,
       }),
     );
 }
@@ -121,9 +127,17 @@ class SendButton {
   render = (isGenerating: boolean, waitTime: number) => {
     if (isGenerating) {
       if (this.isInteractionWaiting) {
-        return button("", this.handleContinue, "fast-forward");
+        return {
+          ...button("", this.handleContinue, "fast-forward"),
+          ...{ style: { color: NAI_YELLOW } },
+        };
       } else if (waitTime > 0) {
-        return button(waitTime.toString(), () => {}, "time");
+        return {
+          ...button(waitTime.toString(), () => {}, "time"),
+          ...{
+            style: { "flex-direction": "column", "justify-content": "center" },
+          },
+        };
       } else {
         return button("", this.handleCancel, "x");
       }
@@ -139,12 +153,22 @@ export class ChatUI {
   onSendMessage = (_text: string) => {};
   onCancel = () => {};
   onClear = () => {};
+  onAgentSelect = (_value: string) => {};
+  onAuto = (_value: boolean) => {};
 
   // Handlers
   handleSendMessage = () =>
     get(INPUT_ID).then((text) =>
       set(INPUT_ID, "").then(() => this.onSendMessage(text)),
     );
+
+  handleBudgetWait = () => this.sendButton.setInteractionWaiting();
+
+  handleCancel = () => this.onCancel();
+
+  handleAgentSelect = (value: string) => this.onAgentSelect(value);
+
+  handleAuto = (value: boolean) => this.onAuto(value);
 
   // Helpers
   sidebar = extension.sidebarPanel({
@@ -164,7 +188,9 @@ export class ChatUI {
 
   constructor() {
     this.sendButton.onSend = this.handleSendMessage;
-    this.sendButton.onCancel = this.onCancel;
+    this.sendButton.onCancel = this.handleCancel;
+    this.agentModeSelector.onAutoCheckbox = this.handleAuto;
+    this.agentModeSelector.onSwitch = this.handleAgentSelect;
   }
 
   render({
@@ -212,7 +238,7 @@ export class ChatUI {
                     agents.map((a) => ({
                       id: a.slug,
                       icon: a.icon,
-                      text: a.title(),
+                      text: "", //a.title(),
                     })),
                   ),
                   row(

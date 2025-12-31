@@ -1,7 +1,7 @@
 // Scenario Engine
 
 import { Chat } from "./chat";
-import { ChatUI } from "./ui";
+import { ChatUI, EngineUI } from "./ui";
 
 // Helpers
 const log = api.v1.log;
@@ -9,6 +9,7 @@ const log = api.v1.log;
 (async () => {
   try {
     const ui = new ChatUI();
+    const engineUI = new EngineUI();
     const chat = new Chat();
     await chat.load();
 
@@ -21,6 +22,7 @@ const log = api.v1.log;
     chat.onUpdate = ui.render.bind(ui);
     chat.onBudgetWait = async () => ui.handleBudgetWait();
 
+    engineUI.register();
     ui.register();
     ui.render(chat);
   } catch (e) {

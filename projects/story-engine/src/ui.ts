@@ -274,3 +274,19 @@ export class ChatUI {
     ]);
   }
 }
+
+export class EngineUI {
+  // Constants
+  static SIDEBAR_ID = "kse-engine-sidebar";
+
+  // Components
+  sidebar = extension.sidebarPanel({
+    id: EngineUI.SIDEBAR_ID,
+    name: "Scenario Engine",
+    content: [text("Engine")],
+  }) as UIExtensionSidebarPanel & { id: string };
+
+  register() {
+    return api.v1.ui.register([this.sidebar]);
+  }
+}

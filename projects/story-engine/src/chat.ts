@@ -129,10 +129,9 @@ export class Chat {
   static AUTO_FLOW = {
     brainstorm: "critique",
     critique: "refine",
-    refine: "brainstorm",
+    refine: "summary",
     summary: "brainstorm",
   };
-  static MAX_AUTO_CYCLES = 3;
 
   // Properties
   messages: Message[] = [];
@@ -150,7 +149,6 @@ export class Chat {
   clearInterval = async () => {};
   cancelSignal: CancellationSignal | undefined = undefined;
   lastResponder: string = "user";
-  autoCycleCount = 0;
 
   constructor() {
     this.agent = this.agents[0];
@@ -197,22 +195,6 @@ export class Chat {
     }
     this.generateResponse();
   };
-
-  autoModeFlow() {
-    if (!this.autoMode) return;
-    if (this.lastResponder == "refiner") this.autoCycleCount++;
-
-    if (this.autoCycleCount < Chat.MAX_AUTO_CYCLES) {
-      const next =
-        Chat.AUTO_FLOW[this.lastResponder as keyof typeof Chat.AUTO_FLOW];
-      this.handleAgentSwitch(next);
-    } else {
-      this.autoMode = false;
-      this.autoCycleCount = 0;
-      this.handleAgentSwitch("summary");
-    }
-    this.handleSendMessage("");
-  }
 
   // Really, the interval is not reliable as a clock, so we have to capture the current epoch seconds
   handleBudgetWait: OnBudgetWaitCallback = async (
@@ -285,6 +267,19 @@ export class Chat {
     this.save();
   }
 
+  autoModeFlow() {
+    if (!this.autoMode) return;
+
+    if (this.lastResponder == "summary") {
+      this.autoMode = false;
+    } else {
+      const next =
+        Chat.AUTO_FLOW[this.lastResponder as keyof typeof Chat.AUTO_FLOW];
+      this.handleAgentSwitch(next);
+      this.handleSendMessage("");
+    }
+  }
+
   private async generateResponse() {
     const context = hyperContextBuilder(
       {
@@ -328,6 +323,7 @@ export class Chat {
 
       this.isGenerating = false;
       this.cancelSignal.dispose();
+      log("Generated:", response);
       // Summary replaces messages with a summary.
       if (this.agent.slug == "summary") {
         this.messages = [];

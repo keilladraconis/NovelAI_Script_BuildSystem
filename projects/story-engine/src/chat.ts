@@ -140,18 +140,19 @@ export class Chat {
   minTokens = 25;
   systemPrompt = "";
   autoMode = false;
-  agents: Agent[] = AGENTS.map((a) => {
-    const theAgent = new a();
-    theAgent.load();
-    return theAgent;
-  });
+  agents: Agent[];
   agent: Agent;
   clearInterval = async () => {};
   cancelSignal: CancellationSignal | undefined = undefined;
   lastResponder: string = "user";
+  synopsisId: string;
 
-  constructor() {
+  constructor(synopsisId: string) {
+    this.agents = [BrainstormAgent, CritiqueAgent, RefineAgent].map(
+      (a) => new a(),
+    );
     this.agent = this.agents[0];
+    this.synopsisId = synopsisId;
   }
 
   // Hooks
@@ -324,11 +325,6 @@ export class Chat {
       this.isGenerating = false;
       this.cancelSignal.dispose();
       log("Generated:", response);
-      // Summary replaces messages with a summary.
-      if (this.agent.slug == "summary") {
-        this.messages = [];
-        this.addMessage("assistant", response);
-      }
       this.onUpdate(this);
       this.save();
       this.autoModeFlow();

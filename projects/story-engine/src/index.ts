@@ -5,12 +5,13 @@ import { ChatUI, EngineUI } from "./ui";
 
 // Helpers
 const log = api.v1.log;
+const SYNOPSIS_ID = "kse-synopsis";
 
 (async () => {
   try {
     const ui = new ChatUI();
-    const engineUI = new EngineUI();
-    const chat = new Chat();
+    const engineUI = new EngineUI(SYNOPSIS_ID);
+    const chat = new Chat(SYNOPSIS_ID);
     await chat.load();
 
     // Wiring the UI to the Chat state
@@ -22,8 +23,8 @@ const log = api.v1.log;
     chat.onUpdate = ui.render.bind(ui);
     chat.onBudgetWait = async () => ui.handleBudgetWait();
 
-    engineUI.register();
-    ui.register();
+    api.v1.ui.register([ui.sidebar, engineUI.sidebar]);
+
     ui.render(chat);
   } catch (e) {
     log("Startup error:", e);

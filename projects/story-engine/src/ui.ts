@@ -173,14 +173,11 @@ export class ChatUI {
   // Helpers
   sidebar = extension.sidebarPanel({
     id: SIDEBAR_ID,
-    name: "Scenario Engine",
+    name: "Story Chat",
     content: [],
   }) as UIExtensionSidebarPanel & { id: string };
 
   // Functions
-  register() {
-    return api.v1.ui.register([this.sidebar]);
-  }
 
   // subcomponents
   agentModeSelector = new RadioGroup();
@@ -207,11 +204,6 @@ export class ChatUI {
         content: [
           {
             ...column(
-              part.text({
-                text: "## Story Engine",
-                markdown: true,
-                style: { flex: "0 0 auto" },
-              }),
               {
                 ...column(
                   ...messages
@@ -279,14 +271,22 @@ export class EngineUI {
   // Constants
   static SIDEBAR_ID = "kse-engine-sidebar";
 
+  // Properties
+  synopsisId: string;
+
+  constructor(synopsisId: string) {
+    this.synopsisId = synopsisId;
+  }
+
   // Components
   sidebar = extension.sidebarPanel({
     id: EngineUI.SIDEBAR_ID,
-    name: "Scenario Engine",
-    content: [text("Engine")],
+    name: "Story Engine",
+    content: [
+      part.multilineTextInput({
+        storageKey: `story:${this!.synopsisId}`,
+        placeholder: "Write your story idea or synopsis here...",
+      }),
+    ],
   }) as UIExtensionSidebarPanel & { id: string };
-
-  register() {
-    return api.v1.ui.register([this.sidebar]);
-  }
 }
